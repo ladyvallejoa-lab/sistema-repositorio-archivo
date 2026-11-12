@@ -1,0 +1,6 @@
+{
+  "name": "UG-Investiga FCI - Gestión Documental",
+  "description": "Sistema de gestión documental y seguimiento de proyectos de investigación FCI de la Facultad de Ingeniería Industrial - Universidad de Guayaquil.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
