@@ -23,16 +23,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - run: npm ci
+      - run: npm install
 
       - run: npm run build
-        env:
-          # Para que los assets carguen en https://usuario.github.io/<repo>/
-          VITE_BASE: /${{ github.event.repository.name }}/
 
-      # Fallback para rutas SPA (opcional)
       - run: cp dist/index.html dist/404.html
 
       - uses: actions/upload-pages-artifact@v3
