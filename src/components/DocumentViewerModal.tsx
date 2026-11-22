@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { DocumentMetadata, UserRole } from '../types';
+import { triggerDocumentDownload } from '../services/supabaseService';
 import {
   X,
   FileText,
@@ -8,16 +9,13 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  ShieldCheck,
-  Calendar,
-  User,
-  HardDrive
+  ShieldCheck
 } from 'lucide-react';
 
 interface DocumentViewerModalProps {
   document: DocumentMetadata | null;
   onClose: () => void;
-  onDeleteDocument: (docId: string, reason: string) => void;
+  onDeleteDocument: (docId: string, reason: string) => Promise<void> | void;
   currentRole: UserRole;
 }
 
@@ -30,6 +28,8 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletionReason, setDeletionReason] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [downloadMsg, setDownloadMsg] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   if (!document) return null;
 
@@ -37,14 +37,30 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     (currentRole === 'ADMINISTRADOR' || currentRole === 'COORDINADOR_CARRERA') &&
     document.active;
 
-  const handleConfirmDelete = () => {
-    if (!deletionReason.trim()) {
-      setErrorMsg('Debe ingresar obligatoriamente el motivo de la baja lógica para auditoría.');
+  const handleConfirmDelete = async () => {
+    if (!deletionReason.trim() || deletionReason.trim().length < 5) {
+      setErrorMsg('Debe ingresar obligatoriamente el motivo de la baja lógica (mínimo 5 caracteres).');
       return;
     }
-    onDeleteDocument(document.id, deletionReason);
-    setShowDeleteConfirm(false);
-    onClose();
+    setIsProcessing(true);
+    try {
+      await onDeleteDocument(document.id, deletionReason);
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al ejecutar baja lógica.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    setDownloadMsg('');
+    try {
+      await triggerDocumentDownload(document);
+    } catch (err: any) {
+      setDownloadMsg(err?.message || 'No se pudo descargar el documento.');
+    }
   };
 
   return (
@@ -167,7 +183,7 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             )}
           </div>
 
-          {/* Simulated File Preview Canvas */}
+          {/* Supabase Storage Download Card */}
           <div className="border border-slate-200 rounded-lg p-5 bg-slate-50 text-center">
             <div className="max-w-md mx-auto space-y-2">
               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mx-auto shadow-2xs border border-slate-200 text-blue-900 font-bold">
@@ -175,12 +191,19 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
               </div>
               <p className="font-semibold text-slate-800 text-xs">{document.name}</p>
               <p className="text-[11px] text-slate-500">
-                Documento verificado digitalmente para el expediente institucional de la Universidad de Guayaquil.
+                {document.storagePath
+                  ? 'Custodiado en Supabase Storage (Bucket privado fci-documents con URL firmada).'
+                  : 'Registro documental piloto de referencia en PostgreSQL.'}
               </p>
+              {downloadMsg && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+                  {downloadMsg}
+                </p>
+              )}
               <div className="pt-2">
                 <button
-                  onClick={() => alert(`Simulación: Descargando archivo ${document.originalFileName} (${document.sizeMb} MB)`)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-900 text-white rounded-md text-xs font-medium hover:bg-blue-800 transition-colors shadow-2xs"
+                  onClick={handleDownload}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-900 text-white rounded-md text-xs font-medium hover:bg-blue-800 transition-colors shadow-2xs cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Descargar Archivo Oficial</span>
@@ -217,10 +240,11 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                   Cancelar
                 </button>
                 <button
+                  disabled={isProcessing}
                   onClick={handleConfirmDelete}
-                  className="px-3 py-1.5 text-xs bg-rose-700 text-white font-medium hover:bg-rose-800 rounded"
+                  className="px-3 py-1.5 text-xs bg-rose-700 text-white font-medium hover:bg-rose-800 rounded disabled:opacity-50"
                 >
-                  Proceder con Baja Lógica
+                  {isProcessing ? 'Procesando...' : 'Proceder con Baja Lógica'}
                 </button>
               </div>
             </div>
@@ -251,3 +275,4 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     </div>
   );
 };
+

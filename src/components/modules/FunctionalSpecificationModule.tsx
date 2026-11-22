@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FUNCTIONAL_SPECIFICATION } from '../../data/specificationContent';
+import { generateManualPDF } from '../../utils/pdfGenerator';
 import {
   BookMarked,
   FileText,
@@ -13,12 +14,14 @@ import {
   ListOrdered,
   Layers,
   Send,
-  Database
+  Database,
+  FileDown
 } from 'lucide-react';
 
 export const FunctionalSpecificationModule: React.FC = () => {
   const [activeSection, setActiveSection] = useState<number>(1);
   const [searchWord, setSearchWord] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const sections = [
     { id: 1, title: '1. Comprensión del Problema y Supuestos' },
@@ -31,6 +34,19 @@ export const FunctionalSpecificationModule: React.FC = () => {
     { id: 8, title: '8. Matriz de Notificaciones y Alertas' },
     { id: 9, title: '9. Preguntas Abiertas y Ambigüedades' }
   ];
+
+  const handleDownloadPDF = () => {
+    setIsDownloading(true);
+    setTimeout(() => {
+      try {
+        generateManualPDF(false);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsDownloading(false);
+      }
+    }, 200);
+  };
 
   const handlePrint = () => {
     window.print();
@@ -53,13 +69,23 @@ export const FunctionalSpecificationModule: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            onClick={handleDownloadPDF}
+            disabled={isDownloading}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            title="Descargar documento completo oficial en PDF"
+          >
+            <FileDown className="w-4 h-4 text-slate-950" />
+            <span>{isDownloading ? 'Generando...' : 'Descargar PDF Oficial'}</span>
+          </button>
+
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white text-slate-900 rounded-lg hover:bg-slate-100 shadow-2xs transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white/10 text-white border border-white/20 rounded-lg hover:bg-white/20 shadow-2xs transition-colors cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>Imprimir / Guardar PDF</span>
+            <span>Imprimir</span>
           </button>
         </div>
       </div>

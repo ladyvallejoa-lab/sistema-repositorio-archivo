@@ -1,44 +1,73 @@
 import React, { useState } from 'react';
-import { FciSemiAnnualReport, UserRole } from '../../types';
+import {
+  ConfigParameter,
+  DocumentMetadata,
+  FciSemiAnnualReport,
+  UserRole
+} from '../../types';
 import {
   CalendarCheck,
   Send,
   Save,
-  CheckCircle,
-  AlertTriangle,
-  Clock,
   FileText,
   Eye,
-  AlertCircle,
-  FileUp,
-  MessageSquare
+  MessageSquare,
+  Upload
 } from 'lucide-react';
 
 interface FciReportsModuleProps {
   reports: FciSemiAnnualReport[];
+  allDocuments: DocumentMetadata[];
+  configParams: ConfigParameter[];
   currentRole: UserRole;
-  onUpdateReport: (updated: FciSemiAnnualReport) => void;
-  onViewDocument: (doc: any) => void;
+  onSubmitOrSaveReport: (params: {
+    report: FciSemiAnnualReport;
+    nextStatus: 'BORRADOR' | 'ENVIADO';
+    summaryAdvances: string;
+    encounteredObstacles: string;
+    nextSteps: string;
+    file?: File | null;
+    maxSizeMb: number;
+  }) => Promise<void>;
+  onReviewReport: (params: {
+    report: FciSemiAnnualReport;
+    nextStatus: 'APROBADO' | 'OBSERVADO';
+    reviewNotes?: string;
+  }) => Promise<void>;
+  onViewDocument: (doc: DocumentMetadata) => void;
 }
 
 export const FciReportsModule: React.FC<FciReportsModuleProps> = ({
   reports,
+  allDocuments,
+  configParams,
   currentRole,
-  onUpdateReport,
+  onSubmitOrSaveReport,
+  onReviewReport,
   onViewDocument
 }) => {
-  const [selectedReportId, setSelectedReportId] = useState<string>(reports[1]?.id || reports[0]?.id);
+  const [selectedReportId, setSelectedReportId] = useState<string>(reports[1]?.id || reports[0]?.id || '');
   const [isEditing, setIsEditing] = useState(false);
   const [summaryAdvances, setSummaryAdvances] = useState('');
   const [encounteredObstacles, setEncounteredObstacles] = useState('');
   const [nextSteps, setNextSteps] = useState('');
-  const [fileSize, setFileSize] = useState(7.9);
-  const [fileName, setFileName] = useState('Reporte_Semestral_FCI_2026_CI.pdf');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [reviewNoteInput, setReviewNoteInput] = useState('');
   const [showObsModal, setShowObsModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [alertBanner, setAlertBanner] = useState<{ type: string; msg: string } | null>(null);
 
   const selectedReport = reports.find((r) => r.id === selectedReportId) || reports[0];
+
+  const maxFciReportMb = Number(
+    configParams.find((p) => p.key === 'MAX_SIZE_REPORTE_FCI_MB')?.value ?? 10
+  );
+  const activePeriod = String(
+    configParams.find((p) => p.key === 'PERIODO_ACTIVO')?.value ?? '2026-CI'
+  );
+  const deadlineStr = String(
+    configParams.find((p) => p.key === 'FECHA_LIMITE_REPORTE_SEMESTRAL')?.value ?? '2026-11-28'
+  );
 
   const canEdit =
     (currentRole === 'DIRECTOR_FCI' || currentRole === 'ADMINISTRADOR') &&
@@ -46,63 +75,163 @@ export const FciReportsModule: React.FC<FciReportsModuleProps> = ({
       selectedReport?.status === 'PENDIENTE' ||
       selectedReport?.status === 'OBSERVADO');
 
-  const canReview = currentRole === 'COORDINADOR_CARRERA';
+  const canReview = currentRole === 'COORDINADOR_CARRERA' || currentRole === 'ADMINISTRADOR';
 
-  const handleSendReport = () => {
-    if (fileSize > 10) {
+  const startEditing = () => {
+    if (!selectedReport) return;
+    setSummaryAdvances(selectedReport.summaryAdvances);
+    setEncounteredObstacles(selectedReport.encounteredObstacles);
+    setNextSteps(selectedReport.nextSteps);
+    setSelectedFile(null);
+    setIsEditing(true);
+    setAlertBanner(null);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+    const ext = file.name.split('.').pop()?.toUpperCase() || '';
+    const sizeMb = Number((file.size / (1024 * 1024)).toFixed(2));
+    if (ext !== 'PDF') {
       setAlertBanner({
         type: 'error',
-        msg: 'Regla RN-18 violada: El documento de evidencias del FCI excede el límite máximo de 10 MB.'
+        msg: 'Regla RN-VAL-01: El archivo de evidencias del FCI debe estar en formato PDF.'
+      });
+      e.target.value = '';
+      return;
+    }
+    if (sizeMb > maxFciReportMb) {
+      setAlertBanner({
+        type: 'error',
+        msg: `Regla RN-18 violada: El documento (${sizeMb} MB) excede el límite máximo de ${maxFciReportMb} MB.`
+      });
+      e.target.value = '';
+      return;
+    }
+    setAlertBanner(null);
+    setSelectedFile(file);
+  };
+
+  const handleSaveOrSend = async (nextStatus: 'BORRADOR' | 'ENVIADO') => {
+    if (!selectedReport) return;
+    if (nextStatus === 'ENVIADO' && !summaryAdvances.trim()) {
+      setAlertBanner({
+        type: 'error',
+        msg: 'El resumen técnico de avances es obligatorio antes de enviar el reporte oficial.'
       });
       return;
     }
-
-    const updated: FciSemiAnnualReport = {
-      ...selectedReport,
-      status: 'ENVIADO',
-      submissionDate: new Date().toISOString().split('T')[0],
-      summaryAdvances: summaryAdvances || selectedReport.summaryAdvances,
-      encounteredObstacles: encounteredObstacles || selectedReport.encounteredObstacles,
-      nextSteps: nextSteps || selectedReport.nextSteps,
-      documentSizeMb: fileSize,
-      documentEvidenceName: fileName
-    };
-    onUpdateReport(updated);
-    setIsEditing(false);
-    setAlertBanner({
-      type: 'success',
-      msg: 'Reporte semestral del FCI enviado formalmente a la Coordinación de Carrera.'
-    });
+    setIsSubmitting(true);
+    try {
+      await onSubmitOrSaveReport({
+        report: selectedReport,
+        nextStatus,
+        summaryAdvances,
+        encounteredObstacles,
+        nextSteps,
+        file: selectedFile,
+        maxSizeMb: maxFciReportMb
+      });
+      setIsEditing(false);
+      setSelectedFile(null);
+      setAlertBanner({
+        type: 'success',
+        msg:
+          nextStatus === 'BORRADOR'
+            ? 'Borrador del reporte FCI guardado en PostgreSQL.'
+            : 'Reporte semestral del FCI enviado formalmente a la Coordinación de Carrera y almacenado en Supabase.'
+      });
+    } catch (err: any) {
+      setAlertBanner({
+        type: 'error',
+        msg: err?.message || 'Error al guardar el reporte FCI.'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleApprove = () => {
-    const updated: FciSemiAnnualReport = {
-      ...selectedReport,
-      status: 'APROBADO',
-      reviewDate: new Date().toISOString().split('T')[0],
-      coordinatorReviewNotes: 'Reporte e informe de evidencias revisados y aprobados sin observaciones.'
-    };
-    onUpdateReport(updated);
-    setAlertBanner({
-      type: 'success',
-      msg: 'Reporte semestral APROBADO satisfactoriamente.'
-    });
+  const handleApprove = async () => {
+    if (!selectedReport) return;
+    setIsSubmitting(true);
+    try {
+      await onReviewReport({
+        report: selectedReport,
+        nextStatus: 'APROBADO',
+        reviewNotes: 'Reporte e informe de evidencias revisados y aprobados sin observaciones.'
+      });
+      setAlertBanner({
+        type: 'success',
+        msg: 'Reporte semestral APROBADO satisfactoriamente en PostgreSQL.'
+      });
+    } catch (err: any) {
+      setAlertBanner({
+        type: 'error',
+        msg: err?.message || 'Error al aprobar el reporte.'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSaveObservation = () => {
-    if (!reviewNoteInput.trim()) return;
-    const updated: FciSemiAnnualReport = {
-      ...selectedReport,
-      status: 'OBSERVADO',
-      coordinatorReviewNotes: reviewNoteInput,
-      reviewDate: new Date().toISOString().split('T')[0]
-    };
-    onUpdateReport(updated);
-    setShowObsModal(false);
-    setReviewNoteInput('');
-    setAlertBanner({
-      type: 'warning',
-      msg: 'Observaciones emitidas. El formulario ha sido reabierto al Director para corrección.'
+  const handleSaveObservation = async () => {
+    if (!selectedReport || !reviewNoteInput.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onReviewReport({
+        report: selectedReport,
+        nextStatus: 'OBSERVADO',
+        reviewNotes: reviewNoteInput.trim()
+      });
+      setShowObsModal(false);
+      setReviewNoteInput('');
+      setAlertBanner({
+        type: 'warning',
+        msg: 'Observaciones emitidas. El formulario ha sido reabierto al Director para corrección.'
+      });
+    } catch (err: any) {
+      setAlertBanner({
+        type: 'error',
+        msg: err?.message || 'Error al registrar observaciones.'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEvidence = () => {
+    if (!selectedReport) return;
+    const matched = selectedReport.documentEvidenceId
+      ? allDocuments.find((d) => d.id === selectedReport.documentEvidenceId)
+      : undefined;
+
+    if (matched) {
+      onViewDocument(matched);
+      return;
+    }
+
+    onViewDocument({
+      id: selectedReport.documentEvidenceId || `FCI-DOC-${selectedReport.id}`,
+      name: selectedReport.documentEvidenceName || `Evidencia_${selectedReport.projectCode}.pdf`,
+      originalFileName:
+        selectedReport.documentEvidenceName || `Evidencia_${selectedReport.projectCode}.pdf`,
+      category: 'REPORTE_FCI',
+      type: 'PDF',
+      sizeMb: selectedReport.documentSizeMb || 0,
+      uploadDate: selectedReport.submissionDate || selectedReport.deadlineDate,
+      uploaderName: selectedReport.directorName,
+      uploaderRole: 'DIRECTOR_FCI',
+      projectId: selectedReport.projectId,
+      projectCode: selectedReport.projectCode,
+      reportPeriod: selectedReport.period,
+      version: '1.0',
+      isLatest: true,
+      confidentiality: 'RESTRINGIDO_CARRERA',
+      active: true,
+      validations: []
     });
   };
 
@@ -119,7 +248,7 @@ export const FciReportsModule: React.FC<FciReportsModuleProps> = ({
             Reportes Semestrales del FCI (Responsabilidad del Director)
           </h1>
           <p className="text-xs text-slate-500">
-            Registro semestral de avances técnicos, justificación de obstáculos y carga de evidencias en PDF (&lt; 10 MB)
+            Registro semestral de avances técnicos, justificación de obstáculos y carga de evidencias en PDF (&lt; {maxFciReportMb} MB)
           </p>
         </div>
 
@@ -127,7 +256,7 @@ export const FciReportsModule: React.FC<FciReportsModuleProps> = ({
         <div className="text-right">
           <span className="text-[11px] text-slate-500 block">Periodo Activo</span>
           <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-            2026-CI (Límite: 28 Nov 2026)
+            {activePeriod} (Límite: {deadlineStr})
           </span>
         </div>
       </div>
@@ -157,270 +286,292 @@ export const FciReportsModule: React.FC<FciReportsModuleProps> = ({
             Reportes Semestrales Registrados
           </h2>
 
-          <div className="space-y-2">
-            {reports.map((rep) => (
-              <div
-                key={rep.id}
-                onClick={() => {
-                  setSelectedReportId(rep.id);
-                  setIsEditing(false);
-                }}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                  selectedReport.id === rep.id
-                    ? 'border-blue-700 bg-blue-50/50 shadow-2xs'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
-                }`}
-              >
-                <div className="flex items-center justify-between text-[11px] mb-1">
-                  <span className="font-mono font-bold text-blue-900">{rep.projectCode}</span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                      rep.status === 'APROBADO'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : rep.status === 'OBSERVADO'
-                        ? 'bg-rose-100 text-rose-800'
-                        : rep.status === 'EN_REVISION' || rep.status === 'ENVIADO'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    {rep.status}
-                  </span>
+          {reports.length === 0 ? (
+            <p className="text-xs text-slate-500 py-6 text-center">
+              No hay reportes FCI visibles para tu usuario actual.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {reports.map((rep) => (
+                <div
+                  key={rep.id}
+                  onClick={() => {
+                    setSelectedReportId(rep.id);
+                    setIsEditing(false);
+                  }}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    selectedReport?.id === rep.id
+                      ? 'border-blue-700 bg-blue-50/50 shadow-2xs'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-[11px] mb-1">
+                    <span className="font-mono font-bold text-blue-900">{rep.projectCode}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        rep.status === 'APROBADO'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : rep.status === 'OBSERVADO'
+                          ? 'bg-rose-100 text-rose-800'
+                          : rep.status === 'EN_REVISION' || rep.status === 'ENVIADO'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {rep.status}
+                    </span>
+                  </div>
+                  <h3 className="text-xs font-semibold text-slate-900 truncate">
+                    Semestre {rep.semesterNumber} · {rep.period}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-1 truncate">
+                    Director: {rep.directorName}
+                  </p>
                 </div>
-                <h3 className="text-xs font-semibold text-slate-900 truncate">
-                  Semestre {rep.semesterNumber} · {rep.period}
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-1 truncate">
-                  Director: {rep.directorName}
-                </p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Right: Detailed Report View / Edit Form */}
         <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-2xs space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                  {selectedReport.projectCode}
-                </span>
-                <span className="text-xs text-slate-600 font-medium">
-                  Reporte Semestre {selectedReport.semesterNumber} ({selectedReport.period})
-                </span>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                    selectedReport.status === 'APROBADO'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : selectedReport.status === 'OBSERVADO'
-                      ? 'bg-rose-100 text-rose-800'
-                      : 'bg-blue-100 text-blue-800'
-                  }`}
-                >
-                  {selectedReport.status}
-                </span>
-              </div>
-              <h2 className="text-base font-bold text-slate-900 mt-1">
-                {selectedReport.projectTitle}
-              </h2>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-2 shrink-0">
-              {canReview && selectedReport.status !== 'APROBADO' && (
-                <>
-                  <button
-                    onClick={() => setShowObsModal(true)}
-                    className="px-3 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg"
-                  >
-                    Emitir Observaciones
-                  </button>
-                  <button
-                    onClick={handleApprove}
-                    className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-2xs"
-                  >
-                    Aprobar Reporte
-                  </button>
-                </>
-              )}
-
-              {canEdit && (
-                <button
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-2xs"
-                >
-                  {isEditing ? 'Cancelar' : 'Completar / Editar Reporte'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Edit Mode vs Read View */}
-          {isEditing ? (
-            <div className="space-y-4 bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs">
-              <h3 className="font-bold text-slate-900 text-sm">
-                Formulario de Reporte Semestral del Director
-              </h3>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  Resumen Técnico de Avances en el Semestre
-                </label>
-                <textarea
-                  rows={4}
-                  value={summaryAdvances || selectedReport.summaryAdvances}
-                  onChange={(e) => setSummaryAdvances(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded bg-white text-slate-900"
-                  placeholder="Detalle los hitos alcanzados, experimentos en laboratorio y pruebas de campo..."
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  Obstáculos Encontrados y Soluciones Aplicadas
-                </label>
-                <textarea
-                  rows={3}
-                  value={encounteredObstacles || selectedReport.encounteredObstacles}
-                  onChange={(e) => setEncounteredObstacles(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded bg-white text-slate-900"
-                  placeholder="Describa problemas en adquisiciones, retrasos de componentes o reprogramación..."
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  Próximos Pasos para el Siguiente Ciclo
-                </label>
-                <input
-                  type="text"
-                  value={nextSteps || selectedReport.nextSteps}
-                  onChange={(e) => setNextSteps(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded bg-white text-slate-900"
-                />
-              </div>
-
-              {/* PDF Evidence upload simulator */}
-              <div className="p-3 bg-white border border-slate-200 rounded-lg">
-                <label className="font-semibold text-slate-800 block mb-1">
-                  Documento PDF Consolidado de Evidencias (Límite: 10 MB)
-                </label>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <input
-                    type="text"
-                    value={fileName}
-                    onChange={(e) => setFileName(e.target.value)}
-                    className="flex-1 p-2 border border-slate-300 rounded text-slate-800 text-xs"
-                  />
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500 text-[11px]">Tamaño simulado:</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={fileSize}
-                      onChange={(e) => setFileSize(Number(e.target.value))}
-                      className="w-20 p-2 border border-slate-300 rounded text-xs text-slate-800 font-mono"
-                    />
-                    <span className="text-[11px] font-mono text-slate-600">MB</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded"
-                >
-                  Descartar
-                </button>
-                <button
-                  onClick={handleSendReport}
-                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded shadow-2xs"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Enviar Reporte y Bloquear Edición</span>
-                </button>
-              </div>
+          {!selectedReport ? (
+            <div className="py-12 text-center text-xs text-slate-500">
+              Selecciona un reporte semestral de la lista.
             </div>
           ) : (
-            <div className="space-y-4 text-xs text-slate-700">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                 <div>
-                  <span className="text-[11px] text-slate-500 block">Director Responsable</span>
-                  <span className="font-semibold text-slate-900">{selectedReport.directorName}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                      {selectedReport.projectCode}
+                    </span>
+                    <span className="text-xs text-slate-600 font-medium">
+                      Reporte Semestre {selectedReport.semesterNumber} ({selectedReport.period})
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                        selectedReport.status === 'APROBADO'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : selectedReport.status === 'OBSERVADO'
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}
+                    >
+                      {selectedReport.status}
+                    </span>
+                  </div>
+                  <h2 className="text-base font-bold text-slate-900 mt-1">
+                    {selectedReport.projectTitle}
+                  </h2>
                 </div>
-                <div>
-                  <span className="text-[11px] text-slate-500 block">Fecha de Envío</span>
-                  <span className="font-semibold text-slate-900 font-mono">
-                    {selectedReport.submissionDate || 'Pendiente de envío'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[11px] text-slate-500 block">Fecha Límite</span>
-                  <span className="font-semibold text-slate-900 font-mono">
-                    {selectedReport.deadlineDate}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[11px] text-slate-500 block">Hitos Reportados</span>
-                  <span className="font-semibold text-slate-900">
-                    {selectedReport.achievedMilestones.length} hitos
-                  </span>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {canReview && selectedReport.status !== 'APROBADO' && (
+                    <>
+                      <button
+                        disabled={isSubmitting}
+                        onClick={() => setShowObsModal(true)}
+                        className="px-3 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg"
+                      >
+                        Emitir Observaciones
+                      </button>
+                      <button
+                        disabled={isSubmitting}
+                        onClick={handleApprove}
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-2xs disabled:opacity-50"
+                      >
+                        Aprobar Reporte
+                      </button>
+                    </>
+                  )}
+
+                  {canEdit && (
+                    <button
+                      onClick={() => (isEditing ? setIsEditing(false) : startEditing())}
+                      className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-2xs"
+                    >
+                      {isEditing ? 'Cancelar' : 'Completar / Editar Reporte'}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div>
-                <h4 className="font-bold text-slate-900 mb-1">Resumen Técnico de Avances</h4>
-                <p className="leading-relaxed text-slate-600 bg-slate-50/50 p-3 rounded-lg border border-slate-100">
-                  {selectedReport.summaryAdvances || 'Aún no se ha redactado el resumen de avances.'}
-                </p>
-              </div>
+              {/* Edit Mode vs Read View */}
+              {isEditing ? (
+                <div className="space-y-4 bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs">
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Formulario de Reporte Semestral del Director
+                  </h3>
 
-              <div>
-                <h4 className="font-bold text-slate-900 mb-1">Obstáculos y Mitigación</h4>
-                <p className="leading-relaxed text-slate-600 bg-slate-50/50 p-3 rounded-lg border border-slate-100">
-                  {selectedReport.encounteredObstacles || 'Sin obstáculos registrados.'}
-                </p>
-              </div>
-
-              {selectedReport.coordinatorReviewNotes && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <h4 className="font-bold text-amber-900 flex items-center gap-1.5 mb-1">
-                    <MessageSquare className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Observaciones Registradas por Coordinación de Carrera</span>
-                  </h4>
-                  <p className="text-amber-800 leading-relaxed">
-                    {selectedReport.coordinatorReviewNotes}
-                  </p>
-                </div>
-              )}
-
-              {/* Evidence Document */}
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <FileText className="w-5 h-5 text-rose-700" />
                   <div>
-                    <p className="font-semibold text-slate-900">
-                      {selectedReport.documentEvidenceName || 'Sin evidencia adjunta'}
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Peso: {selectedReport.documentSizeMb || 0} MB · Límite máximo: 10 MB
-                    </p>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Resumen Técnico de Avances en el Semestre
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={summaryAdvances}
+                      onChange={(e) => setSummaryAdvances(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded bg-white text-slate-900"
+                      placeholder="Detalle los hitos alcanzados, experimentos en laboratorio y pruebas de campo..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Obstáculos Encontrados y Soluciones Aplicadas
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={encounteredObstacles}
+                      onChange={(e) => setEncounteredObstacles(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded bg-white text-slate-900"
+                      placeholder="Describa problemas en adquisiciones, retrasos de componentes o reprogramación..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Próximos Pasos para el Siguiente Ciclo
+                    </label>
+                    <input
+                      type="text"
+                      value={nextSteps}
+                      onChange={(e) => setNextSteps(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded bg-white text-slate-900"
+                    />
+                  </div>
+
+                  {/* Real PDF Evidence upload */}
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg">
+                    <label className="font-semibold text-slate-800 block mb-1.5">
+                      Documento PDF Consolidado de Evidencias (Límite: {maxFciReportMb} MB)
+                    </label>
+                    <label className="flex items-center gap-2 p-2.5 border border-dashed border-slate-400 rounded bg-slate-50 cursor-pointer hover:bg-slate-100">
+                      <Upload className="w-4 h-4 text-blue-800 shrink-0" />
+                      <span className="truncate text-slate-700">
+                        {selectedFile
+                          ? `${selectedFile.name} (${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)`
+                          : selectedReport.documentEvidenceName
+                          ? `Evidencia actual: ${selectedReport.documentEvidenceName} (subir nuevo PDF para actualizar)`
+                          : 'Seleccionar archivo .PDF de evidencias...'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap justify-end gap-2 pt-2">
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded"
+                    >
+                      Descartar
+                    </button>
+                    <button
+                      disabled={isSubmitting}
+                      onClick={() => handleSaveOrSend('BORRADOR')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-200 hover:bg-slate-300 rounded disabled:opacity-50"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Guardar Borrador</span>
+                    </button>
+                    <button
+                      disabled={isSubmitting}
+                      onClick={() => handleSaveOrSend('ENVIADO')}
+                      className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded shadow-2xs disabled:opacity-50"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isSubmitting ? 'Subiendo...' : 'Enviar Reporte y Bloquear Edición'}</span>
+                    </button>
                   </div>
                 </div>
+              ) : (
+                <div className="space-y-4 text-xs text-slate-700">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Director Responsable</span>
+                      <span className="font-semibold text-slate-900">{selectedReport.directorName}</span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Fecha de Envío</span>
+                      <span className="font-semibold text-slate-900 font-mono">
+                        {selectedReport.submissionDate || 'Pendiente de envío'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Fecha Límite</span>
+                      <span className="font-semibold text-slate-900 font-mono">
+                        {selectedReport.deadlineDate}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 block">Hitos Reportados</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedReport.achievedMilestones.length} hitos
+                      </span>
+                    </div>
+                  </div>
 
-                {selectedReport.documentEvidenceName && (
-                  <button
-                    onClick={() => alert(`Previsualizando archivo: ${selectedReport.documentEvidenceName}`)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-white text-blue-900 border border-slate-300 rounded font-medium hover:bg-slate-100"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Ver Evidencias</span>
-                  </button>
-                )}
-              </div>
-            </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900 mb-1">Resumen Técnico de Avances</h4>
+                    <p className="leading-relaxed text-slate-600 bg-slate-50/50 p-3 rounded-lg border border-slate-100">
+                      {selectedReport.summaryAdvances || 'Aún no se ha redactado el resumen de avances.'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-slate-900 mb-1">Obstáculos y Mitigación</h4>
+                    <p className="leading-relaxed text-slate-600 bg-slate-50/50 p-3 rounded-lg border border-slate-100">
+                      {selectedReport.encounteredObstacles || 'Sin obstáculos registrados.'}
+                    </p>
+                  </div>
+
+                  {selectedReport.coordinatorReviewNotes && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <h4 className="font-bold text-amber-900 flex items-center gap-1.5 mb-1">
+                        <MessageSquare className="w-3.5 h-3.5 text-amber-700" />
+                        <span>Observaciones Registradas por Coordinación de Carrera</span>
+                      </h4>
+                      <p className="text-amber-800 leading-relaxed">
+                        {selectedReport.coordinatorReviewNotes}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Evidence Document */}
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-rose-700" />
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {selectedReport.documentEvidenceName || 'Sin evidencia adjunta'}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Peso: {selectedReport.documentSizeMb || 0} MB · Límite máximo: {maxFciReportMb} MB
+                        </p>
+                      </div>
+                    </div>
+
+                    {selectedReport.documentEvidenceName && (
+                      <button
+                        onClick={handleOpenEvidence}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-white text-blue-900 border border-slate-300 rounded font-medium hover:bg-slate-100"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Ver Evidencias</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -450,10 +601,11 @@ export const FciReportsModule: React.FC<FciReportsModuleProps> = ({
                 Cancelar
               </button>
               <button
+                disabled={isSubmitting || !reviewNoteInput.trim()}
                 onClick={handleSaveObservation}
-                className="px-3 py-1.5 text-xs bg-amber-700 text-white font-semibold rounded hover:bg-amber-800"
+                className="px-3 py-1.5 text-xs bg-amber-700 text-white font-semibold rounded hover:bg-amber-800 disabled:opacity-50"
               >
-                Guardar Observación
+                {isSubmitting ? 'Guardando...' : 'Guardar Observación'}
               </button>
             </div>
           </div>

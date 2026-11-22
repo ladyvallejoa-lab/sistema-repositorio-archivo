@@ -1,84 +1,123 @@
 import React, { useState } from 'react';
-import { UserProfile, UserRole } from '../../types';
+import { FciProject, UserProfile, UserRole } from '../../types';
 import {
   Users,
   UserPlus,
-  ShieldCheck,
-  CheckCircle2,
-  XCircle,
-  Key,
-  Edit2,
-  Lock,
-  Mail
+  Key
 } from 'lucide-react';
 
 interface AccessUsersModuleProps {
   users: UserProfile[];
+  projects: FciProject[];
   currentRole: UserRole;
-  onUpdateUser: (updated: UserProfile) => void;
-  onAddUser: (newUser: UserProfile) => void;
+  onCreateUser: (params: {
+    name: string;
+    email: string;
+    roles: UserRole[];
+    projectCode?: string;
+  }) => Promise<void>;
+  onToggleUserActive: (user: UserProfile) => Promise<void>;
+  onResetUserPassword: (email: string) => Promise<void>;
 }
 
 export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
   users,
+  projects,
   currentRole,
-  onUpdateUser,
-  onAddUser
+  onCreateUser,
+  onToggleUserActive,
+  onResetUserPassword
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [selectedRoles, setSelectedRoles] = useState<UserRole[]>(['DOCENTE_INVESTIGADOR_FCI']);
-  const [projectCode, setProjectCode] = useState('FCI-2025-TEL-001');
+  const [projectCode, setProjectCode] = useState(projects[0]?.code || '');
   const [errorMsg, setErrorMsg] = useState('');
-  const [successBanner, setSuccessBanner] = useState('');
+  const [banner, setBanner] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const canManage = currentRole === 'ADMINISTRADOR';
 
   const handleToggleRole = (role: UserRole) => {
     if (selectedRoles.includes(role)) {
-      if (selectedRoles.length === 1) return; // Keep at least one
+      if (selectedRoles.length === 1) return;
       setSelectedRoles(selectedRoles.filter((r) => r !== role));
     } else {
       setSelectedRoles([...selectedRoles, role]);
     }
   };
 
-  const handleCreateUser = () => {
+  const handleCreateUser = async () => {
     if (!name.trim() || !email.trim()) {
       setErrorMsg('Todos los campos son obligatorios.');
       return;
     }
 
-    // Rule RN-01: Must be @ug.edu.ec
-    if (!email.toLowerCase().endsWith('@ug.edu.ec')) {
-      setErrorMsg('Regla RN-01 Bloqueante: Todo usuario debe poseer correo institucional con dominio @ug.edu.ec.');
+    if (!email.trim().toLowerCase().endsWith('@ug.edu.ec')) {
+      setErrorMsg(
+        'Regla RN-01 Bloqueante: Todo usuario debe poseer correo institucional con dominio @ug.edu.ec.'
+      );
       return;
     }
 
-    const newUser: UserProfile = {
-      id: `USR-${String(users.length + 1).padStart(3, '0')}`,
-      name,
-      email,
-      career: 'Ingeniería en Telemática',
-      faculty: 'Facultad de Ingeniería Industrial',
-      roles: selectedRoles,
-      active: true,
-      fciProjects: projectCode ? [projectCode] : []
-    };
-
-    onAddUser(newUser);
-    setShowAddModal(false);
-    setName('');
-    setEmail('');
-    setErrorMsg('');
-    setSuccessBanner(`Usuario ${newUser.name} registrado con éxito con roles asignados.`);
+    setIsSaving(true);
+    try {
+      await onCreateUser({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        roles: selectedRoles,
+        projectCode: projectCode || undefined
+      });
+      setShowAddModal(false);
+      setName('');
+      setEmail('');
+      setErrorMsg('');
+      setBanner({
+        type: 'success',
+        msg: `Usuario ${name.trim()} registrado en PostgreSQL. Al iniciar/registrarse con ese correo @ug.edu.ec en Supabase Auth se vinculará automáticamente.`
+      });
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al registrar usuario en PostgreSQL.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleToggleActive = (user: UserProfile) => {
-    const updated = { ...user, active: !user.active };
-    onUpdateUser(updated);
-    setSuccessBanner(`Estado de cuenta de ${user.name} actualizado a: ${updated.active ? 'Activo' : 'Inactivo'}.`);
+  const handleToggleActive = async (user: UserProfile) => {
+    setIsSaving(true);
+    try {
+      await onToggleUserActive(user);
+      setBanner({
+        type: 'success',
+        msg: `Estado de cuenta de ${user.name} actualizado en Supabase a: ${!user.active ? 'Activo' : 'Inactivo'}.`
+      });
+    } catch (err: any) {
+      setBanner({
+        type: 'error',
+        msg: err?.message || 'No se pudo cambiar el estado del usuario.'
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleResetPassword = async (userEmail: string) => {
+    setIsSaving(true);
+    try {
+      await onResetUserPassword(userEmail);
+      setBanner({
+        type: 'success',
+        msg: `Enlace de restablecimiento enviado vía Supabase Auth al correo ${userEmail}.`
+      });
+    } catch (err: any) {
+      setBanner({
+        type: 'error',
+        msg: err?.message || 'No se pudo enviar el correo de recuperación.'
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -94,13 +133,16 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
             Gestión de Usuarios, Credenciales y Multi-Roles
           </h1>
           <p className="text-xs text-slate-500">
-            Administración de cuentas institucionales (@ug.edu.ec), adscripción a proyectos FCI y matriz de privilegios
+            Administración de cuentas institucionales (@ug.edu.ec), adscripción a proyectos FCI y matriz de privilegios RLS
           </p>
         </div>
 
         {canManage && (
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setErrorMsg('');
+              setShowAddModal(true);
+            }}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-2xs transition-colors shrink-0"
           >
             <UserPlus className="w-4 h-4" />
@@ -109,10 +151,16 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
         )}
       </div>
 
-      {successBanner && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg text-xs flex justify-between items-center">
-          <span>{successBanner}</span>
-          <button onClick={() => setSuccessBanner('')} className="font-bold">
+      {banner && (
+        <div
+          className={`p-3 rounded-lg border text-xs flex justify-between items-center ${
+            banner.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : 'bg-rose-50 border-rose-200 text-rose-900'
+          }`}
+        >
+          <span>{banner.msg}</span>
+          <button onClick={() => setBanner(null)} className="font-bold">
             &times;
           </button>
         </div>
@@ -125,7 +173,7 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
             Usuarios Registrados en Telemática ({users.length})
           </h2>
           <span className="text-[11px] text-slate-500">
-            Principio de menor privilegio aplicado por proyecto
+            Principio de menor privilegio aplicado por Row Level Security (RLS)
           </span>
         </div>
 
@@ -146,7 +194,9 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
                 <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
                   <td className="py-3 px-4">
                     <p className="font-semibold text-slate-900">{u.name}</p>
-                    <span className="text-[10px] text-slate-400 font-mono">{u.id}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {u.userCode || u.id}
+                    </span>
                   </td>
                   <td className="py-3 px-4 font-mono text-[11px] text-slate-700">
                     {u.email}
@@ -187,15 +237,17 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
                     {canManage && (
                       <div className="flex items-center justify-end gap-2">
                         <button
+                          disabled={isSaving}
                           onClick={() => handleToggleActive(u)}
-                          className="text-xs text-slate-600 hover:text-slate-900 font-medium"
+                          className="text-xs text-slate-600 hover:text-slate-900 font-medium disabled:opacity-50"
                         >
                           {u.active ? 'Desactivar' : 'Activar'}
                         </button>
                         <button
-                          onClick={() => alert(`Enviando enlace de restablecimiento de contraseña a ${u.email}...`)}
-                          className="p-1 text-slate-500 hover:text-blue-900 rounded"
-                          title="Restablecer contraseña"
+                          disabled={isSaving}
+                          onClick={() => handleResetPassword(u.email)}
+                          className="p-1 text-slate-500 hover:text-blue-900 rounded disabled:opacity-50"
+                          title="Enviar enlace de restablecimiento de contraseña"
                         >
                           <Key className="w-3.5 h-3.5" />
                         </button>
@@ -285,9 +337,12 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
                 onChange={(e) => setProjectCode(e.target.value)}
                 className="w-full p-2 border border-slate-300 rounded text-slate-900 bg-white"
               >
-                <option value="FCI-2025-TEL-001">FCI-2025-TEL-001 (Plataforma IoT)</option>
-                <option value="FCI-2025-TEL-002">FCI-2025-TEL-002 (Seguridad SDN)</option>
-                <option value="">Ninguno (Postulante)</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.code}>
+                    {p.code} ({p.title.slice(0, 32)}...)
+                  </option>
+                ))}
+                <option value="">Ninguno (Postulante / Gestor)</option>
               </select>
             </div>
 
@@ -299,10 +354,11 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
                 Cancelar
               </button>
               <button
+                disabled={isSaving}
                 onClick={handleCreateUser}
-                className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded shadow-2xs"
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded shadow-2xs disabled:opacity-50"
               >
-                Guardar Usuario
+                {isSaving ? 'Guardando...' : 'Guardar Usuario'}
               </button>
             </div>
           </div>

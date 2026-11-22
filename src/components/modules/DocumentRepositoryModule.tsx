@@ -1,43 +1,39 @@
 import React, { useState } from 'react';
 import { DocumentMetadata, UserRole } from '../../types';
+import { triggerDocumentDownload } from '../../services/supabaseService';
 import {
   Files,
   FileText,
   Search,
-  Filter,
   Download,
-  Eye,
-  Trash2,
-  ShieldCheck,
-  Tag,
-  CheckCircle2,
-  AlertTriangle,
-  History
+  Eye
 } from 'lucide-react';
 
 interface DocumentRepositoryModuleProps {
   documents: DocumentMetadata[];
   currentRole: UserRole;
   onViewDocument: (doc: DocumentMetadata) => void;
-  onDeleteDocument: (docId: string, reason: string) => void;
+  onDeleteDocument: (docId: string, reason: string) => Promise<void> | void;
 }
 
 export const DocumentRepositoryModule: React.FC<DocumentRepositoryModuleProps> = ({
   documents,
-  currentRole,
-  onViewDocument,
-  onDeleteDocument
+  onViewDocument
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'DELETED'>('ACTIVE');
+  const [downloadFeedback, setDownloadFeedback] = useState<{ type: 'info' | 'error'; msg: string } | null>(null);
 
   // Filter documents
   const filteredDocs = documents.filter((doc) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
-      doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.uploaderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (doc.projectId && doc.projectId.toLowerCase().includes(searchQuery.toLowerCase()));
+      doc.name.toLowerCase().includes(q) ||
+      doc.originalFileName.toLowerCase().includes(q) ||
+      doc.uploaderName.toLowerCase().includes(q) ||
+      (doc.projectCode && doc.projectCode.toLowerCase().includes(q)) ||
+      (doc.projectId && doc.projectId.toLowerCase().includes(q));
 
     const matchesCategory = categoryFilter === 'ALL' || doc.category === categoryFilter;
 
@@ -48,6 +44,22 @@ export const DocumentRepositoryModule: React.FC<DocumentRepositoryModuleProps> =
 
     return matchesSearch && matchesCategory && matchesStatus;
   });
+
+  const handleDownload = async (doc: DocumentMetadata) => {
+    setDownloadFeedback(null);
+    try {
+      await triggerDocumentDownload(doc);
+      setDownloadFeedback({
+        type: 'info',
+        msg: `Descarga segura iniciada desde Supabase Storage: ${doc.originalFileName}`
+      });
+    } catch (err: any) {
+      setDownloadFeedback({
+        type: 'error',
+        msg: err?.message || 'No se pudo descargar el documento.'
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -62,7 +74,7 @@ export const DocumentRepositoryModule: React.FC<DocumentRepositoryModuleProps> =
             Repositorio y Expediente Documental Institucional
           </h1>
           <p className="text-xs text-slate-500">
-            Custodia centralizada con versionado automático (v1.0, v1.1), metadatos enriquecidos y baja lógica inmutable
+            Custodia centralizada en Supabase Storage con versionado automático (v1.0, v1.1), metadatos enriquecidos y baja lógica inmutable
           </p>
         </div>
 
@@ -72,6 +84,21 @@ export const DocumentRepositoryModule: React.FC<DocumentRepositoryModuleProps> =
           </span>
         </div>
       </div>
+
+      {downloadFeedback && (
+        <div
+          className={`p-3 rounded-lg border text-xs flex justify-between items-center ${
+            downloadFeedback.type === 'info'
+              ? 'bg-blue-50 border-blue-200 text-blue-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}
+        >
+          <span>{downloadFeedback.msg}</span>
+          <button onClick={() => setDownloadFeedback(null)} className="font-bold px-2">
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
@@ -99,13 +126,14 @@ export const DocumentRepositoryModule: React.FC<DocumentRepositoryModuleProps> =
               <option value="REPORTE_FCI">Reporte FCI (Director)</option>
               <option value="REPORTE_INVESTIGADOR">Reporte Investigador</option>
               <option value="EVIDENCIA_TECNICA">Evidencia Técnica</option>
+              <option value="PUBLICACION">Producción Científica</option>
               <option value="ACTA_CIERRE">Acta de Cierre</option>
             </select>
 
             <span className="text-slate-500 font-medium ml-2">Estado:</span>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'ACTIVE' | 'DELETED')}
               className="p-1.5 border border-slate-300 rounded-md bg-white text-slate-800 text-xs"
             >
               <option value="ACTIVE">Vigentes / Activos</option>
@@ -148,7 +176,9 @@ export const DocumentRepositoryModule: React.FC<DocumentRepositoryModuleProps> =
                     </div>
                   </td>
                   <td className="py-3 px-3 whitespace-nowrap">
-                    <span className="font-mono font-bold text-blue-900">{doc.projectId || 'N/A'}</span>
+                    <span className="font-mono font-bold text-blue-900">
+                      {doc.projectCode || doc.projectId || 'General'}
+                    </span>
                     {doc.reportPeriod && (
                       <span className="text-[10px] text-slate-500 block">{doc.reportPeriod}</span>
                     )}
@@ -189,7 +219,7 @@ export const DocumentRepositoryModule: React.FC<DocumentRepositoryModuleProps> =
                         <Eye className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => alert(`Descargando archivo: ${doc.originalFileName}`)}
+                        onClick={() => handleDownload(doc)}
                         className="p-1 text-slate-600 hover:bg-slate-100 rounded"
                         title="Descargar archivo"
                       >

@@ -1,58 +1,59 @@
 import React from 'react';
 import { UserRole, UserProfile } from '../types';
-import { USERS_DATA } from '../data/mockData';
-import { Bell, BookOpen, Search, ShieldCheck, UserCheck } from 'lucide-react';
+import { Bell, BookOpen, LogOut, Search, ShieldCheck, UserCheck } from 'lucide-react';
 
 interface HeaderProps {
   currentRole: UserRole;
+  assignedRoles: UserRole[];
   currentUser: UserProfile;
   onSelectRole: (role: UserRole) => void;
+  onSignOut: () => void;
   unreadCount: number;
   onOpenNotifications: () => void;
   onOpenSearch: () => void;
   onOpenDossier: () => void;
   isDossierActive: boolean;
+  onOpenManual: () => void;
+  isManualActive: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
+  assignedRoles,
   currentUser,
   onSelectRole,
+  onSignOut,
   unreadCount,
   onOpenNotifications,
   onOpenSearch,
   onOpenDossier,
-  isDossierActive
+  isDossierActive,
+  onOpenManual,
+  isManualActive
 }) => {
-  const roleLabels: Record<UserRole, { label: string; user: string; color: string }> = {
+  const roleLabels: Record<UserRole, { label: string; color: string }> = {
     ADMINISTRADOR: {
       label: 'Administrador General',
-      user: 'Ing. Carlos Mendoza',
       color: 'text-rose-700 bg-rose-50 border-rose-200'
     },
     COORDINADOR_CARRERA: {
       label: 'Coordinador Telemática',
-      user: 'Dr. Roberto Silva, PhD',
       color: 'text-indigo-700 bg-indigo-50 border-indigo-200'
     },
     GESTOR_CONOCIMIENTO: {
       label: 'Gestor de Conocimiento',
-      user: 'MSc. Diana Paredes',
       color: 'text-emerald-700 bg-emerald-50 border-emerald-200'
     },
     DIRECTOR_FCI: {
-      label: 'Director de FCI (001)',
-      user: 'MSc. Xavier Andrade',
+      label: 'Director de FCI',
       color: 'text-blue-700 bg-blue-50 border-blue-200'
     },
     FUTURO_DIRECTOR_FCI: {
       label: 'Futuro Director (Postulante)',
-      user: 'Dra. Elena Villacís',
       color: 'text-amber-700 bg-amber-50 border-amber-200'
     },
     DOCENTE_INVESTIGADOR_FCI: {
       label: 'Docente Investigador FCI',
-      user: 'Ing. Gabriel Romero',
       color: 'text-teal-700 bg-teal-50 border-teal-200'
     }
   };
@@ -75,28 +76,48 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center Zone: Role Switcher Simulation */}
+        {/* Center Zone: Multi-Role Switcher for Authenticated User */}
         <div className="hidden lg:flex items-center gap-2 bg-slate-100 p-1 rounded-lg border border-slate-200">
           <div className="flex items-center gap-1.5 px-2 text-xs font-semibold text-slate-600">
             <UserCheck className="w-3.5 h-3.5 text-blue-700" />
-            <span>Simular Rol:</span>
+            <span>Rol Activo:</span>
           </div>
-          <select
-            value={currentRole}
-            onChange={(e) => onSelectRole(e.target.value as UserRole)}
-            className="text-xs font-medium bg-white border border-slate-300 rounded-md px-3 py-1.5 text-slate-800 shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-blue-600 cursor-pointer"
-          >
-            <option value="COORDINADOR_CARRERA">Coordinador Telemática (Dr. Roberto Silva)</option>
-            <option value="DIRECTOR_FCI">Director de FCI (MSc. Xavier Andrade)</option>
-            <option value="DOCENTE_INVESTIGADOR_FCI">Docente Investigador (Ing. Gabriel Romero)</option>
-            <option value="GESTOR_CONOCIMIENTO">Gestor de Conocimiento (MSc. Diana Paredes)</option>
-            <option value="FUTURO_DIRECTOR_FCI">Futuro Director FCI (Dra. Elena Villacís)</option>
-            <option value="ADMINISTRADOR">Administrador Sistema (Ing. Carlos Mendoza)</option>
-          </select>
+          {assignedRoles.length > 1 ? (
+            <select
+              value={currentRole}
+              onChange={(e) => onSelectRole(e.target.value as UserRole)}
+              className="text-xs font-medium bg-white border border-slate-300 rounded-md px-3 py-1.5 text-slate-800 shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-blue-600 cursor-pointer"
+            >
+              {assignedRoles.map((r) => (
+                <option key={r} value={r}>
+                  {roleLabels[r]?.label || r}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-xs font-semibold bg-white border border-slate-300 rounded-md px-3 py-1.5 text-slate-800 flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-800" />
+              <span>{roleLabels[currentRole]?.label || currentRole}</span>
+            </span>
+          )}
         </div>
 
         {/* Action Controls & User Identity */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Quick Manual Button for Client */}
+          <button
+            onClick={onOpenManual}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+              isManualActive
+                ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+            }`}
+            title="Manual de Usuario y Explicación para Entrega al Cliente"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-500" />
+            <span className="hidden sm:inline">Manual de Entrega</span>
+          </button>
+
           {/* Quick Dossier Button */}
           <button
             onClick={onOpenDossier}
@@ -108,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
             title="Ver Documento Completo de Análisis Funcional (9 Entregables)"
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Dossier Funcional (9 Entregables)</span>
+            <span className="hidden md:inline">Dossier (9 Ptos)</span>
           </button>
 
           {/* Search Trigger */}
@@ -134,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* User Profile Pill */}
+          {/* User Profile & Sign Out */}
           <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200">
             <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-semibold text-xs border border-slate-300">
               {currentUser.name
@@ -151,9 +172,17 @@ export const Header: React.FC<HeaderProps> = ({
                 {roleLabels[currentRole]?.label}
               </span>
             </div>
+            <button
+              onClick={onSignOut}
+              className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors ml-1"
+              title="Cerrar sesión segura"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
     </header>
   );
 };
+

@@ -1,15 +1,10 @@
 import React, { useState } from 'react';
 import { AuditLogEntry, UserRole } from '../../types';
 import {
-  History,
-  ShieldCheck,
-  Search,
   Filter,
   Download,
-  Calendar,
   Lock,
-  ArrowRight,
-  UserCheck
+  Search
 } from 'lucide-react';
 
 interface AuditTraceabilityModuleProps {
@@ -18,8 +13,7 @@ interface AuditTraceabilityModuleProps {
 }
 
 export const AuditTraceabilityModule: React.FC<AuditTraceabilityModuleProps> = ({
-  logs,
-  currentRole
+  logs
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [entityFilter, setEntityFilter] = useState<string>('ALL');
@@ -36,6 +30,45 @@ export const AuditTraceabilityModule: React.FC<AuditTraceabilityModuleProps> = (
     return matchesSearch && matchesEntity;
   });
 
+  const handleExportCsv = () => {
+    const headers = [
+      'Fecha_Hora',
+      'Usuario',
+      'Rol',
+      'Accion',
+      'Entidad',
+      'ID_Entidad',
+      'Descripcion',
+      'Valor_Previo',
+      'Valor_Nuevo',
+      'IP'
+    ];
+    const rows = filteredLogs.map((l) =>
+      [
+        l.timestamp,
+        `"${l.userName.replace(/"/g, '""')}"`,
+        l.userRole,
+        l.action,
+        l.entity,
+        l.entityId,
+        `"${l.entityDescription.replace(/"/g, '""')}"`,
+        `"${(l.previousValue || '').replace(/"/g, '""')}"`,
+        `"${(l.newValue || '').replace(/"/g, '""')}"`,
+        l.ipAddress
+      ].join(',')
+    );
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bitacora_auditoria_ug_fci_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -49,13 +82,13 @@ export const AuditTraceabilityModule: React.FC<AuditTraceabilityModuleProps> = (
             Seguimiento, Trazabilidad y Auditoría Inmutable
           </h1>
           <p className="text-xs text-slate-500">
-            Registro cronológico protegido contra alteraciones: usuario, rol, acción, valores antes/después y dirección IP
+            Registro cronológico protegido en PostgreSQL contra alteraciones (RLS append-only): usuario, rol, acción, valores antes/después y origen
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => alert('Exportando bitácora inmutable de auditoría institucional a formato CSV cifrado...')}
+            onClick={handleExportCsv}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-2xs"
           >
             <Download className="w-3.5 h-3.5 text-slate-600" />
@@ -119,6 +152,7 @@ export const AuditTraceabilityModule: React.FC<AuditTraceabilityModuleProps> = (
                   <option value="REPORTE_INVESTIGADOR">Reporte Investigador</option>
                   <option value="DOCUMENTO">Documento</option>
                   <option value="PRODUCCION_CIENTIFICA">Producción Científica</option>
+                  <option value="CONFIGURACION">Configuración</option>
                 </select>
               </div>
             </div>
@@ -133,7 +167,7 @@ export const AuditTraceabilityModule: React.FC<AuditTraceabilityModuleProps> = (
                     <th className="py-2.5 px-3">Acción</th>
                     <th className="py-2.5 px-3">Entidad Afectada</th>
                     <th className="py-2.5 px-3">Detalle / Valor Previo &rarr; Nuevo</th>
-                    <th className="py-2.5 px-3 font-mono text-right">Dirección IP</th>
+                    <th className="py-2.5 px-3 font-mono text-right">Origen / IP</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -187,7 +221,6 @@ export const AuditTraceabilityModule: React.FC<AuditTraceabilityModuleProps> = (
             </div>
           </div>
         ) : (
-          /* Timeline view of Pilot Project FCI-001 */
           <div className="py-4 px-2 space-y-6">
             <div className="relative pl-6 border-l-2 border-blue-900 space-y-6">
               <div className="relative">

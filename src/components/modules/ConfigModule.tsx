@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ConfigParameter, RequiredDocumentRule, UserRole } from '../../types';
 import {
-  Settings,
   Save,
   Calendar,
   HardDrive,
@@ -15,27 +14,33 @@ interface ConfigModuleProps {
   parameters: ConfigParameter[];
   rules: RequiredDocumentRule[];
   currentRole: UserRole;
-  onUpdateParameter: (param: ConfigParameter) => void;
-  onUpdateRule: (rule: RequiredDocumentRule) => void;
+  onSaveConfig: (params: ConfigParameter[], rules: RequiredDocumentRule[]) => Promise<void>;
 }
 
 export const ConfigModule: React.FC<ConfigModuleProps> = ({
   parameters,
   rules,
   currentRole,
-  onUpdateParameter,
-  onUpdateRule
+  onSaveConfig
 }) => {
   const [paramList, setParamList] = useState<ConfigParameter[]>(parameters);
   const [ruleList, setRuleList] = useState<RequiredDocumentRule[]>(rules);
+  const [isSaving, setIsSaving] = useState(false);
   const [savedBanner, setSavedBanner] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setParamList(parameters);
+  }, [parameters]);
+
+  useEffect(() => {
+    setRuleList(rules);
+  }, [rules]);
 
   const canEdit = currentRole === 'ADMINISTRADOR';
 
-  const handleParamValueChange = (id: string, newVal: any) => {
-    setParamList(
-      paramList.map((p) => (p.id === id ? { ...p, value: newVal } : p))
-    );
+  const handleParamValueChange = (id: string, newVal: string | number | boolean) => {
+    setParamList(paramList.map((p) => (p.id === id ? { ...p, value: newVal } : p)));
   };
 
   const handleRuleToggleMandatory = (id: string) => {
@@ -50,11 +55,18 @@ export const ConfigModule: React.FC<ConfigModuleProps> = ({
     );
   };
 
-  const handleSaveAll = () => {
-    paramList.forEach((p) => onUpdateParameter(p));
-    ruleList.forEach((r) => onUpdateRule(r));
-    setSavedBanner(true);
-    setTimeout(() => setSavedBanner(false), 3000);
+  const handleSaveAll = async () => {
+    setIsSaving(true);
+    setErrorMsg(null);
+    try {
+      await onSaveConfig(paramList, ruleList);
+      setSavedBanner(true);
+      setTimeout(() => setSavedBanner(false), 3500);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al guardar la configuración en Supabase.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -70,17 +82,18 @@ export const ConfigModule: React.FC<ConfigModuleProps> = ({
             Parámetros del Sistema, Calendario y Reglas Documentales
           </h1>
           <p className="text-xs text-slate-500">
-            Valores configurables para límites de almacenamiento, periodos académicos y matriz de documentos obligatorios por etapa
+            Valores configurables en PostgreSQL para límites de almacenamiento, periodos académicos y matriz de documentos obligatorios por etapa
           </p>
         </div>
 
         {canEdit && (
           <button
+            disabled={isSaving}
             onClick={handleSaveAll}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-2xs transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg shadow-2xs transition-colors shrink-0 disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
-            <span>Guardar Parámetros</span>
+            <span>{isSaving ? 'Guardando...' : 'Guardar Parámetros'}</span>
           </button>
         )}
       </div>
@@ -88,7 +101,14 @@ export const ConfigModule: React.FC<ConfigModuleProps> = ({
       {savedBanner && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg text-xs flex items-center gap-2 font-medium">
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span>Configuración y límites de validación actualizados con éxito en el sistema.</span>
+          <span>Configuración y límites de validación actualizados con éxito en PostgreSQL.</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-900 rounded-lg text-xs flex items-center gap-2 font-medium">
+          <AlertCircle className="w-4 h-4 text-rose-600" />
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -155,8 +175,13 @@ export const ConfigModule: React.FC<ConfigModuleProps> = ({
                     <input
                       type={typeof param.value === 'number' ? 'number' : 'text'}
                       disabled={!canEdit}
-                      value={param.value as any}
-                      onChange={(e) => handleParamValueChange(param.id, e.target.value)}
+                      value={String(param.value)}
+                      onChange={(e) =>
+                        handleParamValueChange(
+                          param.id,
+                          typeof param.value === 'number' ? Number(e.target.value) : e.target.value
+                        )
+                      }
                       className="w-32 p-1.5 border border-slate-300 rounded text-center font-mono font-bold text-xs bg-white text-slate-900 disabled:bg-slate-100"
                     />
                     {param.unit && (

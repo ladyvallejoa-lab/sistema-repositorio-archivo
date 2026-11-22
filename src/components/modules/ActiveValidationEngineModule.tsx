@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { FciProject, RequiredDocumentRule, UserRole } from '../../types';
+import {
+  ConfigParameter,
+  FciProject,
+  RequiredDocumentRule,
+  UserRole
+} from '../../types';
+import { computeFileSha256 } from '../../services/supabaseService';
 import {
   ShieldAlert,
   CheckCircle2,
@@ -7,23 +13,20 @@ import {
   XCircle,
   Play,
   Settings,
-  FileText,
-  Clock,
-  Sparkles,
-  Info
+  Upload
 } from 'lucide-react';
 
 interface ActiveValidationEngineModuleProps {
   projects: FciProject[];
   rules: RequiredDocumentRule[];
+  configParams: ConfigParameter[];
   currentRole: UserRole;
   selectedProjectId?: string;
 }
 
 export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModuleProps> = ({
   projects,
-  rules,
-  currentRole,
+  configParams,
   selectedProjectId: initialProjectId
 }) => {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
@@ -33,11 +36,35 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
   const [simulatedFormat, setSimulatedFormat] = useState<string>('application/pdf');
   const [simulatedDate, setSimulatedDate] = useState<string>('2026-10-15');
   const [simulatedDuplicate, setSimulatedDuplicate] = useState<boolean>(false);
-  const [testResults, setTestResults] = useState<any[] | null>(null);
+  const [inspectedFileName, setInspectedFileName] = useState<string | null>(null);
+  const [inspectedSha256, setInspectedSha256] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<
+    { code: string; name: string; status: string; msg: string }[] | null
+  >(null);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
+  const maxLimitMb = Number(
+    configParams.find((p) => p.key === 'MAX_SIZE_REPORTE_FCI_MB')?.value ?? 10
+  );
+
+  const handleInspectRealFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const sizeMb = Number((file.size / (1024 * 1024)).toFixed(2));
+    const hash = await computeFileSha256(file);
+    setInspectedFileName(file.name);
+    setInspectedSha256(hash);
+    setSimulatedSize(sizeMb > 0 ? sizeMb : 0.1);
+    setSimulatedFormat(file.type || 'application/octet-stream');
+    const isDup = Boolean(
+      selectedProject?.documents.some((d) => d.checksumSha256 && d.checksumSha256 === hash)
+    );
+    setSimulatedDuplicate(isDup);
+    setTestResults(null);
+  };
 
   const runActiveValidation = () => {
+    if (!selectedProject) return;
     const results = [];
 
     // Rule 1: MIME Type Check
@@ -57,21 +84,21 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
       });
     }
 
-    // Rule 2: Size Limit Check (<10 MB for FCI report)
-    if (simulatedSize <= 10) {
-      if (simulatedSize > 9) {
+    // Rule 2: Configurable Size Limit Check
+    if (simulatedSize <= maxLimitMb) {
+      if (simulatedSize > maxLimitMb * 0.9) {
         results.push({
           code: 'RN-VAL-02',
           name: 'Límite de Tamaño Configurado',
           status: 'CON_ADVERTENCIA',
-          msg: `El tamaño (${simulatedSize} MB) se encuentra al 90%+ del límite permitido de 10 MB.`
+          msg: `El tamaño (${simulatedSize} MB) se encuentra al 90%+ del límite configurado de ${maxLimitMb} MB.`
         });
       } else {
         results.push({
           code: 'RN-VAL-02',
           name: 'Límite de Tamaño Configurado',
           status: 'ACEPTADO',
-          msg: `Tamaño ${simulatedSize} MB dentro del límite máximo permitido (10 MB).`
+          msg: `Tamaño ${simulatedSize} MB dentro del límite máximo configurado (${maxLimitMb} MB).`
         });
       }
     } else {
@@ -79,7 +106,7 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
         code: 'RN-VAL-02',
         name: 'Límite de Tamaño Configurado',
         status: 'RECHAZADO',
-        msg: `El archivo excede el tamaño máximo configurado (${simulatedSize} MB > 10 MB). Carga denegada.`
+        msg: `El archivo excede el tamaño máximo configurado (${simulatedSize} MB > ${maxLimitMb} MB). Carga denegada.`
       });
     }
 
@@ -89,14 +116,16 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
         code: 'RN-VAL-03',
         name: 'Control de Duplicados e Integridad de Checksum',
         status: 'CON_ADVERTENCIA',
-        msg: 'Se detectó coincidencia de hash criptográfico (MD5/SHA256) con un documento ya cargado en el expediente. Se registrará como versión histórica.'
+        msg: `Coincidencia de hash SHA-256${inspectedSha256 ? ` (${inspectedSha256.slice(0, 12)}...)` : ''} con un documento ya cargado en el expediente. Se registrará como versión histórica.`
       });
     } else {
       results.push({
         code: 'RN-VAL-03',
         name: 'Control de Duplicados e Integridad de Checksum',
         status: 'ACEPTADO',
-        msg: 'Checksum único verificado. No existen duplicados en el repositorio del proyecto.'
+        msg: inspectedSha256
+          ? `Checksum SHA-256 único verificado (${inspectedSha256.slice(0, 16)}...).`
+          : 'Checksum único verificado. No existen duplicados en el repositorio del proyecto.'
       });
     }
 
@@ -126,11 +155,21 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
       code: 'RN-VAL-05',
       name: 'Verificación de Expediente Obligatorio de Etapa',
       status: selectedProject.documentCompletenessPercent >= 80 ? 'ACEPTADO' : 'CON_ADVERTENCIA',
-      msg: `Completitud del expediente al ${selectedProject.documentCompletenessPercent}%. Estado documental evaluado: ${selectedProject.documentCompletenessPercent >= 80 ? 'CONFORME' : 'CON EVIDENCIAS PENDIENTES'}.`
+      msg: `Completitud del expediente al ${selectedProject.documentCompletenessPercent}%. Estado documental evaluado: ${
+        selectedProject.documentCompletenessPercent >= 80 ? 'CONFORME' : 'CON EVIDENCIAS PENDIENTES'
+      }.`
     });
 
     setTestResults(results);
   };
+
+  if (!selectedProject) {
+    return (
+      <div className="p-8 text-center text-xs text-slate-500">
+        No hay proyectos disponibles para evaluar en el motor activo.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -145,7 +184,7 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
             Motor de Validación Documental Activa
           </h1>
           <p className="text-xs text-slate-500">
-            Evaluación sintáctica y semántica en tiempo real: formato MIME, límites de peso, duplicados y cronograma
+            Evaluación sintáctica y semántica en tiempo real: formato MIME, límites de peso, SHA-256 y cronograma
           </p>
         </div>
 
@@ -153,7 +192,7 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500 font-medium">Evaluar Proyecto:</span>
           <select
-            value={selectedProjectId}
+            value={selectedProject.id}
             onChange={(e) => {
               setSelectedProjectId(e.target.value);
               setTestResults(null);
@@ -169,16 +208,34 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
         </div>
       </div>
 
-      {/* Simulator Playground: Test active rules */}
+      {/* Simulator & Real File Inspector Playground */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Input parameters for test */}
+        {/* Left: Input parameters */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4 text-xs">
           <div className="flex items-center justify-between pb-2 border-b border-slate-100">
             <h2 className="font-bold text-slate-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
               <Settings className="w-4 h-4 text-blue-800" />
-              <span>Simulador de Carga y Reglas</span>
+              <span>Inspector y Simulador de Reglas</span>
             </h2>
-            <span className="text-slate-500 text-[10px]">Interactivo</span>
+            <span className="text-slate-500 text-[10px]">Dinámico</span>
+          </div>
+
+          <div>
+            <label className="font-semibold text-slate-700 block mb-1">
+              Inspeccionar Archivo Real (Opcional)
+            </label>
+            <label className="flex items-center gap-2 p-2 border border-dashed border-slate-400 rounded bg-slate-50 cursor-pointer hover:bg-slate-100">
+              <Upload className="w-4 h-4 text-blue-800 shrink-0" />
+              <span className="truncate text-slate-700">
+                {inspectedFileName || 'Elegir archivo local para calcular SHA-256...'}
+              </span>
+              <input type="file" onChange={handleInspectRealFile} className="hidden" />
+            </label>
+            {inspectedSha256 && (
+              <p className="text-[10px] font-mono text-slate-500 mt-1 truncate">
+                SHA-256: {inspectedSha256}
+              </p>
+            )}
           </div>
 
           <div>
@@ -202,7 +259,7 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
             <input
               type="range"
               min="0.5"
-              max="15"
+              max={Math.max(15, maxLimitMb + 5)}
               step="0.5"
               value={simulatedSize}
               onChange={(e) => setSimulatedSize(Number(e.target.value))}
@@ -210,8 +267,8 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
             />
             <div className="flex justify-between text-[10px] text-slate-500 font-mono">
               <span>0.5 MB</span>
-              <span className="text-amber-700 font-bold">Límite: 10 MB</span>
-              <span className="text-rose-700 font-bold">15 MB</span>
+              <span className="text-amber-700 font-bold">Límite: {maxLimitMb} MB</span>
+              <span className="text-rose-700 font-bold">{Math.max(15, maxLimitMb + 5)} MB</span>
             </div>
           </div>
 
@@ -257,7 +314,7 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
                 Dictamen del Motor de Validación Activa
               </h2>
               <p className="text-slate-500 text-[11px]">
-                Resultados emitidos en tiempo real por el validador
+                Resultados emitidos en tiempo real con parámetros de PostgreSQL
               </p>
             </div>
             {testResults && (
@@ -270,7 +327,9 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
           {!testResults ? (
             <div className="py-16 text-center text-slate-400 text-xs">
               <ShieldAlert className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="font-medium text-slate-600">Presione &ldquo;Ejecutar Validación Activa&rdquo; para evaluar los parámetros.</p>
+              <p className="font-medium text-slate-600">
+                Presione &ldquo;Ejecutar Validación Activa&rdquo; para evaluar los parámetros.
+              </p>
               <p className="text-[11px] text-slate-400 mt-1">
                 El motor analizará MIME, límites configurados, coherencia temporal y completitud de etapa.
               </p>
@@ -319,7 +378,6 @@ export const ActiveValidationEngineModule: React.FC<ActiveValidationEngineModule
                 </div>
               ))}
 
-              {/* Global Assessment */}
               <div className="mt-4 p-4 rounded-lg bg-slate-900 text-white text-xs flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">

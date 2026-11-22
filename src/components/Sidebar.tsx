@@ -31,7 +31,8 @@ export type ActiveModuleId =
   | 'audit'
   | 'notifications'
   | 'search'
-  | 'dossier';
+  | 'dossier'
+  | 'manual';
 
 interface NavItem {
   id: ActiveModuleId;
@@ -167,14 +168,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     },
     {
-      title: 'ESPECIFICACIÓN FORMAL',
+      title: 'ENTREGA Y MANUALES',
       items: [
+        {
+          id: 'manual' as ActiveModuleId,
+          label: 'Manual de Entrega al Cliente',
+          code: 'GUÍA',
+          icon: BookMarked,
+          highlight: true
+        },
         {
           id: 'dossier' as ActiveModuleId,
           label: 'Dossier Funcional (9 Ptos)',
           code: 'DOC',
-          icon: BookMarked,
-          highlight: true
+          icon: BookMarked
         }
       ]
     }

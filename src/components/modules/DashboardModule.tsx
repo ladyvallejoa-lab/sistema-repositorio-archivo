@@ -15,7 +15,6 @@ import {
   Clock,
   Download,
   ArrowRight,
-  TrendingUp,
   Award,
   CheckCircle2,
   FileSpreadsheet
@@ -27,35 +26,66 @@ interface DashboardModuleProps {
   fciReports: FciSemiAnnualReport[];
   researcherReports: ResearcherSemiAnnualReport[];
   currentRole: UserRole;
-  onNavigate: (module: any) => void;
+  onNavigate: (module: string) => void;
   onViewDocument: (doc: any) => void;
 }
 
 export const DashboardModule: React.FC<DashboardModuleProps> = ({
   projects,
-  proposals,
-  fciReports,
   researcherReports,
-  currentRole,
-  onNavigate,
-  onViewDocument
+  onNavigate
 }) => {
-  // Calculations
   const activeProjectsCount = projects.filter((p) => p.status === 'EN_EJECUCION').length;
-  const pendingProposalsCount = proposals.filter(
-    (p) => p.status === 'ENVIADA' || p.status === 'EN_REVISION'
-  ).length;
-
-  const totalResearchers = 8;
+  const totalReports = researcherReports.length || 8;
   const approvedReports = researcherReports.filter((r) => r.status === 'APROBADO').length;
   const pendingReports = researcherReports.filter(
     (r) => r.status === 'PENDIENTE' || r.status === 'BORRADOR'
   ).length;
   const observedReports = researcherReports.filter((r) => r.status === 'OBSERVADO').length;
 
+  const uniqueResearchersCount =
+    new Set(projects.flatMap((p) => p.participants.map((part) => part.userId))).size || 8;
+
   const avgCompleteness = Math.round(
     projects.reduce((acc, p) => acc + p.documentCompletenessPercent, 0) / (projects.length || 1)
   );
+
+  const handleExportCsvMatrix = () => {
+    const headers = [
+      'Codigo_Proyecto',
+      'Titulo',
+      'Estado',
+      'Semestre_Actual',
+      'Completitud_Documental_%',
+      'Presupuesto_Asignado',
+      'Presupuesto_Ejecutado'
+    ];
+    const rows = projects.map((p) =>
+      [
+        p.code,
+        `"${p.title.replace(/"/g, '""')}"`,
+        p.status,
+        `${p.currentSemester}/${p.totalSemesters}`,
+        p.documentCompletenessPercent,
+        p.budgetAssigned,
+        p.budgetExecuted
+      ].join(',')
+    );
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `matriz_cumplimiento_fci_telematica_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPdfPrint = () => {
+    window.print();
+  };
 
   return (
     <div className="space-y-6">
@@ -77,18 +107,18 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => alert('Generando informe ejecutivo consolidado de la Carrera en formato PDF...')}
+              onClick={handleExportPdfPrint}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors shadow-2xs"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Exportar Resumen PDF</span>
             </button>
             <button
-              onClick={() => alert('Exportando matriz de cumplimiento documental a formato XLSX...')}
+              onClick={handleExportCsvMatrix}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
-              <span>Exportar Excel</span>
+              <span>Exportar Excel (CSV)</span>
             </button>
           </div>
         </div>
@@ -101,7 +131,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
               <FolderGit2 className="w-4 h-4 text-blue-700" />
             </div>
             <div className="text-2xl font-bold font-mono text-slate-900">{activeProjectsCount}</div>
-            <p className="text-[11px] text-slate-500 mt-1">FCI-001 (IoT) y FCI-002 (SDN)</p>
+            <p className="text-[11px] text-slate-500 mt-1">{projects.length} proyectos registrados</p>
           </div>
 
           <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
@@ -109,8 +139,8 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
               <span>Investigadores FCI</span>
               <Users className="w-4 h-4 text-emerald-700" />
             </div>
-            <div className="text-2xl font-bold font-mono text-slate-900">{totalResearchers}</div>
-            <p className="text-[11px] text-emerald-700 font-medium mt-1">100% adscritos a proyectos</p>
+            <div className="text-2xl font-bold font-mono text-slate-900">{uniqueResearchersCount}</div>
+            <p className="text-[11px] text-emerald-700 font-medium mt-1">Adscritos a proyectos visibles</p>
           </div>
 
           <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
@@ -140,7 +170,6 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
 
       {/* Grid: Active Projects Tracking & Semi-Annual Reports Semaphore */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column (2 spans): Active Projects with Document Completeness */}
         <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-2xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -188,13 +217,12 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                 <h3 className="text-sm font-semibold text-slate-900">{project.title}</h3>
                 <p className="text-xs text-slate-600 mt-1 line-clamp-2">{project.description}</p>
 
-                {/* Progress bar */}
                 <div className="mt-3">
                   <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
                     <span>
                       Director:{' '}
                       <strong className="text-slate-800">
-                        {project.participants.find((p) => p.projectRole === 'DIRECTOR')?.name}
+                        {project.participants.find((p) => p.projectRole === 'DIRECTOR')?.name || 'Por asignar'}
                       </strong>
                     </span>
                     <span>
@@ -239,18 +267,19 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
               Cumplimiento 2026-CI
             </h2>
             <p className="text-xs text-slate-500">
-              Estado de los 8 reportes de investigadores FCI
+              Estado de reportes de investigadores FCI ({totalReports})
             </p>
           </div>
 
-          {/* Semaphore summary */}
           <div className="space-y-2.5 pt-2">
             <div className="flex items-center justify-between p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 <span className="font-semibold text-emerald-900">Aprobados por Coordinación</span>
               </div>
-              <span className="font-bold font-mono text-emerald-800">{approvedReports} / 8</span>
+              <span className="font-bold font-mono text-emerald-800">
+                {approvedReports} / {totalReports}
+              </span>
             </div>
 
             <div className="flex items-center justify-between p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-xs">
@@ -258,7 +287,9 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                 <AlertCircle className="w-4 h-4 text-amber-600" />
                 <span className="font-semibold text-amber-900">Con Observaciones Técnicas</span>
               </div>
-              <span className="font-bold font-mono text-amber-800">{observedReports} / 8</span>
+              <span className="font-bold font-mono text-amber-800">
+                {observedReports} / {totalReports}
+              </span>
             </div>
 
             <div className="flex items-center justify-between p-2.5 bg-slate-100 rounded-lg border border-slate-200 text-xs">
@@ -266,11 +297,12 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
                 <Clock className="w-4 h-4 text-slate-600" />
                 <span className="font-semibold text-slate-800">Pendientes / En Borrador</span>
               </div>
-              <span className="font-bold font-mono text-slate-800">{pendingReports} / 8</span>
+              <span className="font-bold font-mono text-slate-800">
+                {pendingReports} / {totalReports}
+              </span>
             </div>
           </div>
 
-          {/* Quick list of researchers status */}
           <div className="pt-3 border-t border-slate-100">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-slate-700">Estado de Investigadores</span>
@@ -310,7 +342,6 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({
             </div>
           </div>
 
-          {/* Scientific Production alert */}
           <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs space-y-1">
             <div className="flex items-center gap-1.5 font-bold text-blue-900">
               <Award className="w-3.5 h-3.5 text-blue-700" />

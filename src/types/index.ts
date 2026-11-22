@@ -14,6 +14,8 @@ export type UserRole =
 
 export interface UserProfile {
   id: string;
+  userCode?: string;
+  authUserId?: string | null;
   name: string;
   email: string;
   career: string;
@@ -21,7 +23,7 @@ export interface UserProfile {
   roles: UserRole[];
   active: boolean;
   avatarUrl?: string;
-  fciProjects: string[]; // IDs de proyectos asociados
+  fciProjects: string[]; // Códigos o IDs de proyectos asociados
 }
 
 export type ProposalStatus =
@@ -59,15 +61,20 @@ export interface ValidationDetail {
 
 export interface DocumentMetadata {
   id: string;
+  docCode?: string;
   name: string;
   originalFileName: string;
   category: 'PROPUESTA' | 'REPORTE_FCI' | 'REPORTE_INVESTIGADOR' | 'EVIDENCIA_TECNICA' | 'PUBLICACION' | 'ACTA_CIERRE';
   type: string; // PDF, DOCX, XLSX
+  mimeType?: string;
   sizeMb: number;
   uploadDate: string;
+  uploaderId?: string;
   uploaderName: string;
   uploaderRole: UserRole;
   projectId?: string;
+  projectCode?: string;
+  proposalId?: string;
   reportPeriod?: string;
   version: string;
   isLatest: boolean;
@@ -78,10 +85,14 @@ export interface DocumentMetadata {
   deletedAt?: string;
   validations: ValidationDetail[];
   fileUrl?: string;
+  storageBucket?: string;
+  storagePath?: string;
+  checksumSha256?: string;
 }
 
 export interface ProjectMilestone {
   id: string;
+  milestoneCode?: string;
   title: string;
   description: string;
   targetDate: string;

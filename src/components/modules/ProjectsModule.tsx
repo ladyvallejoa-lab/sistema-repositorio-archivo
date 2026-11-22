@@ -1,38 +1,49 @@
 import React, { useState } from 'react';
-import { FciProject, UserRole, ProjectMilestone } from '../../types';
+import { DocumentMetadata, FciProject, ProjectMilestone, UserRole } from '../../types';
 import {
   FolderGit2,
   Users,
   Calendar,
   CheckCircle2,
-  Clock,
   AlertTriangle,
   Lock,
   FileText,
   ShieldCheck,
   Eye,
-  CheckSquare,
-  Plus
+  Save
 } from 'lucide-react';
 
 interface ProjectsModuleProps {
   projects: FciProject[];
   currentRole: UserRole;
-  onUpdateProject: (updated: FciProject) => void;
-  onViewDocument: (doc: any) => void;
+  onFinalizeProject: (project: FciProject) => Promise<void>;
+  onUpdateMilestone: (params: {
+    milestoneId: string;
+    projectCode: string;
+    progressPercent: number;
+    status: ProjectMilestone['status'];
+  }) => Promise<void>;
+  onViewDocument: (doc: DocumentMetadata) => void;
   onNavigateToValidation: (projectId: string) => void;
 }
 
 export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
   projects,
   currentRole,
-  onUpdateProject,
+  onFinalizeProject,
+  onUpdateMilestone,
   onViewDocument,
   onNavigateToValidation
 }) => {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(projects[0]?.id || '');
   const [activeTab, setActiveTab] = useState<'info' | 'team' | 'milestones' | 'documents'>('info');
   const [closureAlert, setClosureAlert] = useState<{ allowed: boolean; msg: string; missingDocs?: string[] } | null>(null);
+  const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
+  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
+  const [milestoneProgressInput, setMilestoneProgressInput] = useState<number>(0);
+  const [milestoneStatusInput, setMilestoneStatusInput] = useState<ProjectMilestone['status']>('EN_CURSO');
+  const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
 
@@ -44,6 +55,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
   // Rule RN-10: Verification before closing project
   const handleVerifyClosure = () => {
     if (!selectedProject) return;
+    setConfirmFinalizeOpen(false);
 
     if (selectedProject.documentCompletenessPercent < 100) {
       setClosureAlert({
@@ -63,26 +75,47 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
     }
   };
 
-  const handleFinalizeProject = () => {
+  const handleFinalizeProject = async () => {
     if (!selectedProject) return;
-    if (!window.confirm(`¿Confirmar el cierre definitivo del proyecto ${selectedProject.code}? El expediente pasará a modo SOLO LECTURA irreversible.`)) {
-      return;
+    setIsSaving(true);
+    try {
+      await onFinalizeProject(selectedProject);
+      setConfirmFinalizeOpen(false);
+      setClosureAlert({
+        allowed: true,
+        msg: `El proyecto ${selectedProject.code} ha sido FINALIZADO formalmente en PostgreSQL. El expediente quedó en modo Solo Lectura.`
+      });
+    } catch (err: any) {
+      setClosureAlert({
+        allowed: false,
+        msg: err?.message || 'Error al finalizar proyecto.'
+      });
+    } finally {
+      setIsSaving(false);
     }
+  };
 
-    const updated: FciProject = {
-      ...selectedProject,
-      status: 'FINALIZADO',
-      actualEndDate: new Date().toISOString().split('T')[0]
-    };
-    onUpdateProject(updated);
-    setClosureAlert({
-      allowed: true,
-      msg: `El proyecto ${updated.code} ha sido FINALIZADO formalmente. El expediente ha quedado archivado en modo Solo Lectura.`
-    });
+  const handleSaveMilestone = async (m: ProjectMilestone) => {
+    if (!selectedProject) return;
+    setIsSaving(true);
+    try {
+      await onUpdateMilestone({
+        milestoneId: m.id,
+        projectCode: selectedProject.code,
+        progressPercent: milestoneProgressInput,
+        status: milestoneStatusInput
+      });
+      setEditingMilestoneId(null);
+      setStatusFeedback(`Hito ${m.milestoneCode || m.id} actualizado correctamente en Supabase.`);
+    } catch (err: any) {
+      setStatusFeedback(err?.message || 'No se pudo actualizar el hito.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (!selectedProject) {
-    return <div className="p-8 text-center text-slate-500">No hay proyectos activos registrados.</div>;
+    return <div className="p-8 text-center text-slate-500">No hay proyectos activos registrados para tu perfil.</div>;
   }
 
   return (
@@ -102,16 +135,19 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
         </div>
 
         {/* Project picker buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {projects.map((p) => (
             <button
               key={p.id}
               onClick={() => {
                 setSelectedProjectId(p.id);
                 setClosureAlert(null);
+                setConfirmFinalizeOpen(false);
+                setEditingMilestoneId(null);
+                setStatusFeedback(null);
               }}
               className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
-                p.id === selectedProjectId
+                p.id === selectedProject.id
                   ? 'bg-blue-900 text-white border-blue-900 shadow-xs'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
               }`}
@@ -121,6 +157,15 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
           ))}
         </div>
       </div>
+
+      {statusFeedback && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg text-xs flex justify-between items-center">
+          <span>{statusFeedback}</span>
+          <button onClick={() => setStatusFeedback(null)} className="font-bold">
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Main Project Card */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -159,7 +204,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
             </div>
 
             {/* Quick Action: Expediente Closure Verification */}
-            {currentRole === 'COORDINADOR_CARRERA' && !isClosed && (
+            {(currentRole === 'COORDINADOR_CARRERA' || currentRole === 'ADMINISTRADOR') && !isClosed && (
               <div className="shrink-0">
                 <button
                   onClick={handleVerifyClosure}
@@ -201,14 +246,35 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                 </div>
               )}
 
-              {closureAlert.allowed && (
-                <div className="mt-3 flex justify-end">
-                  <button
-                    onClick={handleFinalizeProject}
-                    className="px-3 py-1.5 bg-emerald-700 text-white font-semibold rounded hover:bg-emerald-800 text-xs shadow-2xs"
-                  >
-                    Confirmar Transición a FINALIZADO
-                  </button>
+              {closureAlert.allowed && !isClosed && (
+                <div className="mt-3 flex justify-end gap-2">
+                  {!confirmFinalizeOpen ? (
+                    <button
+                      onClick={() => setConfirmFinalizeOpen(true)}
+                      className="px-3 py-1.5 bg-emerald-700 text-white font-semibold rounded hover:bg-emerald-800 text-xs shadow-2xs"
+                    >
+                      Confirmar Transición a FINALIZADO
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-white border border-emerald-300 px-3 py-2 rounded-lg">
+                      <span className="text-slate-700 font-medium">
+                        ¿Cerrar definitivamente {selectedProject.code} (Solo Lectura irreversible)?
+                      </span>
+                      <button
+                        onClick={() => setConfirmFinalizeOpen(false)}
+                        className="px-2 py-1 text-slate-600 hover:bg-slate-100 rounded"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        disabled={isSaving}
+                        onClick={handleFinalizeProject}
+                        className="px-3 py-1 bg-rose-700 text-white font-semibold rounded hover:bg-rose-800 disabled:opacity-50"
+                      >
+                        {isSaving ? 'Finalizando...' : 'Sí, Finalizar'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -216,10 +282,10 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
         </div>
 
         {/* Navigation Tabs within Project */}
-        <div className="flex border-b border-slate-200 px-6 bg-white gap-2">
+        <div className="flex border-b border-slate-200 px-6 bg-white gap-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('info')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors ${
+            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'info'
                 ? 'border-blue-900 text-blue-900'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -229,7 +295,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('team')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'team'
                 ? 'border-blue-900 text-blue-900'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -240,7 +306,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('milestones')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'milestones'
                 ? 'border-blue-900 text-blue-900'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -251,7 +317,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('documents')}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'documents'
                 ? 'border-blue-900 text-blue-900'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -265,7 +331,6 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
         {/* Tab 1: Ficha General */}
         {activeTab === 'info' && (
           <div className="p-6 space-y-6 text-xs text-slate-700">
-            {/* Meta badges */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
               <div>
                 <span className="text-[11px] text-slate-500 block">Línea de Investigación</span>
@@ -294,7 +359,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
             </div>
 
             <div>
-              <h3 className="font-bold text-slate-900 text-xs mb-1.5 uppercase tracking-wider text-slate-500">
+              <h3 className="font-bold text-xs mb-1.5 uppercase tracking-wider text-slate-500">
                 Descripción del Proyecto
               </h3>
               <p className="leading-relaxed text-slate-600 bg-white p-3 rounded-lg border border-slate-100">
@@ -303,7 +368,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
             </div>
 
             <div>
-              <h3 className="font-bold text-slate-900 text-xs mb-1.5 uppercase tracking-wider text-slate-500">
+              <h3 className="font-bold text-xs mb-1.5 uppercase tracking-wider text-slate-500">
                 Objetivo General
               </h3>
               <p className="leading-relaxed text-slate-800 font-medium bg-blue-50/50 p-3 rounded-lg border border-blue-100">
@@ -312,7 +377,7 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
             </div>
 
             <div>
-              <h3 className="font-bold text-slate-900 text-xs mb-1.5 uppercase tracking-wider text-slate-500">
+              <h3 className="font-bold text-xs mb-1.5 uppercase tracking-wider text-slate-500">
                 Objetivos Específicos
               </h3>
               <ul className="space-y-2">
@@ -402,23 +467,84 @@ export const ProjectsModule: React.FC<ProjectsModuleProps> = ({
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-1.5">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs font-bold text-slate-700 bg-slate-200 px-1.5 py-0.5 rounded">
-                        {m.id}
+                        {m.milestoneCode || m.id}
                       </span>
                       <h4 className="font-semibold text-slate-900 text-xs">{m.title}</h4>
                     </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        m.status === 'COMPLETADO'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : m.status === 'EN_CURSO'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {m.status} ({m.progressPercent}%)
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                          m.status === 'COMPLETADO'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : m.status === 'EN_CURSO'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {m.status} ({m.progressPercent}%)
+                      </span>
+                      {canManageProject && editingMilestoneId !== m.id && (
+                        <button
+                          onClick={() => {
+                            setEditingMilestoneId(m.id);
+                            setMilestoneProgressInput(m.progressPercent);
+                            setMilestoneStatusInput(m.status);
+                          }}
+                          className="text-[11px] font-semibold text-blue-800 hover:underline"
+                        >
+                          Actualizar
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <p className="text-slate-600 text-[11px] mb-2">{m.description}</p>
+
+                  {editingMilestoneId === m.id && (
+                    <div className="my-2 p-3 bg-white rounded border border-blue-200 flex flex-wrap items-center gap-3">
+                      <label className="text-[11px] font-semibold text-slate-700">
+                        Avance (%):
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={milestoneProgressInput}
+                          onChange={(e) => setMilestoneProgressInput(Number(e.target.value))}
+                          className="ml-1.5 w-16 p-1 border border-slate-300 rounded font-mono text-xs"
+                        />
+                      </label>
+                      <label className="text-[11px] font-semibold text-slate-700">
+                        Estado:
+                        <select
+                          value={milestoneStatusInput}
+                          onChange={(e) =>
+                            setMilestoneStatusInput(e.target.value as ProjectMilestone['status'])
+                          }
+                          className="ml-1.5 p-1 border border-slate-300 rounded text-xs bg-white"
+                        >
+                          <option value="PENDIENTE">PENDIENTE</option>
+                          <option value="EN_CURSO">EN_CURSO</option>
+                          <option value="COMPLETADO">COMPLETADO</option>
+                          <option value="RETRASADO">RETRASADO</option>
+                        </select>
+                      </label>
+                      <div className="flex gap-1.5 ml-auto">
+                        <button
+                          onClick={() => setEditingMilestoneId(null)}
+                          className="px-2.5 py-1 text-[11px] text-slate-600 hover:bg-slate-100 rounded"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          disabled={isSaving}
+                          onClick={() => handleSaveMilestone(m)}
+                          className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-900 text-white font-semibold rounded hover:bg-blue-800 disabled:opacity-50"
+                        >
+                          <Save className="w-3 h-3" />
+                          <span>Guardar</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-200/60">
                     <span>
