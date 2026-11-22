@@ -38,7 +38,7 @@ export const AuthScreen: React.FC = () => {
         const { needsEmailConfirmation } = await signUp(fullName, email, password);
         if (needsEmailConfirmation) {
           setInfoMsg(
-            'Registro recibido. Revisa tu correo @ug.edu.ec para confirmar la cuenta antes de iniciar sesión.'
+            'Registro recibido. Revisa tu correo electrónico para confirmar la cuenta antes de iniciar sesión.'
           );
           setMode('login');
         }
@@ -154,7 +154,7 @@ export const AuthScreen: React.FC = () => {
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Registro UG
+                Registrarse
               </button>
               <button
                 type="button"
@@ -208,7 +208,7 @@ export const AuthScreen: React.FC = () => {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  Correo Institucional (@ug.edu.ec)
+                  Correo Electrónico
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -217,7 +217,7 @@ export const AuthScreen: React.FC = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nombre.apellido@ug.edu.ec"
+                    placeholder="usuario@correo.com"
                     className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-slate-900 font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                   />
                 </div>
@@ -254,7 +254,7 @@ export const AuthScreen: React.FC = () => {
                 ) : mode === 'signup' ? (
                   <>
                     <ShieldCheck className="w-4 h-4" />
-                    <span>{submitting ? 'Registrando cuenta...' : 'Registrar Cuenta @ug.edu.ec'}</span>
+                    <span>{submitting ? 'Registrando cuenta...' : 'Crear Cuenta'}</span>
                   </>
                 ) : (
                   <>

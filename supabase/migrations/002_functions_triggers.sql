@@ -154,9 +154,9 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Si no existía, crear perfil nuevo (requiere dominio @ug.edu.ec según RN-01)
-  IF lower(NEW.email) !~ '^[a-z0-9._%+-]+@ug\.edu\.ec$' THEN
-    RAISE EXCEPTION 'Regla RN-01: Solo se permiten correos institucionales @ug.edu.ec';
+  -- Si no existía, crear perfil nuevo (valida formato de correo electrónico)
+  IF lower(NEW.email) !~ '^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$' THEN
+    RAISE EXCEPTION 'Formato de correo electrónico inválido.';
   END IF;
 
   v_full_name := COALESCE(

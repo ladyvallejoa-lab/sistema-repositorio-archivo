@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   user_code text UNIQUE NOT NULL,
   auth_user_id uuid UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
   full_name text NOT NULL,
-  email text UNIQUE NOT NULL CHECK (email ~* '^[A-Za-z0-9._%+-]+@ug\.edu\.ec$'),
+  email text UNIQUE NOT NULL CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
   career text NOT NULL DEFAULT 'Ingeniería en Telemática',
   faculty text NOT NULL DEFAULT 'Facultad de Ingeniería Industrial',
   active boolean NOT NULL DEFAULT true,

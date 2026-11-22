@@ -36,4 +36,4 @@ En el **SQL Editor** de Supabase, ejecuta los archivos ubicados en `supabase/mig
    - Futuro Director (Postulante): `elena.villacis@ug.edu.ec`
    - Docente Investigador: `gabriel.romero@ug.edu.ec`
    - Gestor de Conocimiento: `diana.paredes@ug.edu.ec`
-3. También puedes registrarte directamente desde la pantalla de acceso de la aplicación usando cualquier correo terminado en `@ug.edu.ec` (Regla `RN-01`).
+3. También puedes registrarte directamente desde la pantalla de acceso de la aplicación usando cualquier correo electrónico válido (o ejecutar `006_allow_any_email.sql` si ya habías corrido las migraciones iniciales).

@@ -159,10 +159,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUp = async (fullName: string, email: string, password: string) => {
     if (!supabase) throw new Error('Supabase no configurado.');
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail.endsWith('@ug.edu.ec')) {
-      throw new Error(
-        'Regla RN-01: El registro requiere un correo institucional con dominio @ug.edu.ec.'
-      );
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      throw new Error('Ingrese una dirección de correo electrónico válida.');
     }
     const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,

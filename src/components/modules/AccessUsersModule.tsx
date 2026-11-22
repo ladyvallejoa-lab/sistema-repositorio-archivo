@@ -54,10 +54,9 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
       return;
     }
 
-    if (!email.trim().toLowerCase().endsWith('@ug.edu.ec')) {
-      setErrorMsg(
-        'Regla RN-01 Bloqueante: Todo usuario debe poseer correo institucional con dominio @ug.edu.ec.'
-      );
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErrorMsg('Ingrese una dirección de correo electrónico válida.');
       return;
     }
 
@@ -75,7 +74,7 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
       setErrorMsg('');
       setBanner({
         type: 'success',
-        msg: `Usuario ${name.trim()} registrado en PostgreSQL. Al iniciar/registrarse con ese correo @ug.edu.ec en Supabase Auth se vinculará automáticamente.`
+        msg: `Usuario ${name.trim()} registrado en PostgreSQL. Al iniciar/registrarse con ese correo en Supabase Auth se vinculará automáticamente.`
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Error al registrar usuario en PostgreSQL.');
@@ -133,7 +132,7 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
             Gestión de Usuarios, Credenciales y Multi-Roles
           </h1>
           <p className="text-xs text-slate-500">
-            Administración de cuentas institucionales (@ug.edu.ec), adscripción a proyectos FCI y matriz de privilegios RLS
+            Administración de cuentas de usuario, adscripción a proyectos FCI y matriz de privilegios RLS
           </p>
         </div>
 
@@ -288,11 +287,11 @@ export const AccessUsersModule: React.FC<AccessUsersModuleProps> = ({
 
             <div>
               <label className="font-semibold text-slate-700 block mb-1">
-                Correo Institucional (@ug.edu.ec)
+                Correo Electrónico
               </label>
               <input
                 type="email"
-                placeholder="juan.perez@ug.edu.ec"
+                placeholder="usuario@correo.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full p-2 border border-slate-300 rounded text-slate-900 bg-white font-mono"
