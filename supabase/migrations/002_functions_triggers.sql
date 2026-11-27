@@ -164,11 +164,18 @@ BEGIN
     initcap(replace(split_part(NEW.email, '@', 1), '.', ' '))
   );
 
-  v_next_code := 'USR-' || lpad(
-    (COALESCE((SELECT count(*) FROM public.profiles), 0) + 1)::text,
+  SELECT 'USR-' || lpad(
+    (
+      COALESCE(
+        MAX(NULLIF(regexp_replace(user_code, '[^0-9]', '', 'g'), '')::integer),
+        0
+      ) + 1
+    )::text,
     3,
     '0'
-  );
+  )
+  INTO v_next_code
+  FROM public.profiles;
 
   INSERT INTO public.profiles (
     user_code,
@@ -202,6 +209,101 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+CREATE OR REPLACE FUNCTION public.ensure_current_user_profile()
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+  v_auth_uid uuid;
+  v_email text;
+  v_meta jsonb;
+  v_profile_id uuid;
+  v_full_name text;
+  v_next_code text;
+BEGIN
+  v_auth_uid := auth.uid();
+  IF v_auth_uid IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT id INTO v_profile_id
+  FROM public.profiles
+  WHERE auth_user_id = v_auth_uid
+  LIMIT 1;
+
+  IF v_profile_id IS NOT NULL THEN
+    RETURN v_profile_id;
+  END IF;
+
+  SELECT email, raw_user_meta_data
+  INTO v_email, v_meta
+  FROM auth.users
+  WHERE id = v_auth_uid;
+
+  IF v_email IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT id INTO v_profile_id
+  FROM public.profiles
+  WHERE lower(email) = lower(v_email)
+  LIMIT 1;
+
+  IF v_profile_id IS NOT NULL THEN
+    UPDATE public.profiles
+    SET auth_user_id = v_auth_uid
+    WHERE id = v_profile_id;
+    RETURN v_profile_id;
+  END IF;
+
+  v_full_name := COALESCE(
+    NULLIF(trim(v_meta ->> 'full_name'), ''),
+    initcap(replace(split_part(v_email, '@', 1), '.', ' '))
+  );
+
+  SELECT 'USR-' || lpad(
+    (
+      COALESCE(
+        MAX(NULLIF(regexp_replace(user_code, '[^0-9]', '', 'g'), '')::integer),
+        0
+      ) + 1
+    )::text,
+    3,
+    '0'
+  )
+  INTO v_next_code
+  FROM public.profiles;
+
+  INSERT INTO public.profiles (
+    user_code,
+    auth_user_id,
+    full_name,
+    email,
+    career,
+    faculty,
+    active
+  )
+  VALUES (
+    v_next_code,
+    v_auth_uid,
+    v_full_name,
+    lower(v_email),
+    COALESCE(NULLIF(trim(v_meta ->> 'career'), ''), 'Ingeniería en Telemática'),
+    'Facultad de Ingeniería Industrial',
+    true
+  )
+  RETURNING id INTO v_profile_id;
+
+  INSERT INTO public.user_roles (user_id, role)
+  VALUES (v_profile_id, 'DOCENTE_INVESTIGADOR_FCI')
+  ON CONFLICT DO NOTHING;
+
+  RETURN v_profile_id;
+END;
+$$;
 
 -- ----------------------------------------------------------------------------
 -- 4. BLOQUEO DE EDICIÓN EN PROYECTOS FINALIZADOS / CANCELADOS (Solo Lectura)

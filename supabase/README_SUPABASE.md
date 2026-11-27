@@ -26,6 +26,8 @@ En el **SQL Editor** de Supabase, ejecuta los archivos ubicados en `supabase/mig
 3. `003_rls_policies.sql` — Habilita **Row Level Security (RLS)** en todas las tablas y define políticas granulares por rol y pertenencia al proyecto.
 4. `004_storage.sql` — Crea el bucket privado `fci-documents` y sus políticas de acceso/subida en `storage.objects`.
 5. `005_seed_data.sql` — Carga los datos piloto de la Carrera de Ingeniería en Telemática (11 usuarios, 2 proyectos FCI, 1 propuesta, 8 reportes individuales, producción científica, auditoría y parámetros).
+6. `006_allow_any_email.sql` — *(Solo si ya habías corrido 001/002 antes)* Permite registro con cualquier correo válido.
+7. `007_fix_permissions_and_sync_profiles.sql` — *(Solo si ya habías corrido 003 antes o aparece `permission denied for table profiles`)* Otorga permisos `GRANT` en `public` y sincroniza usuarios ya creados en `auth.users`.
 
 ## Paso 4: Crear los Primeros Usuarios en Supabase Auth
 1. En **Authentication → Providers → Email**, asegúrate de tener **Email** habilitado (para pruebas rápidas puedes desactivar *Confirm email* temporalmente).
@@ -36,4 +38,4 @@ En el **SQL Editor** de Supabase, ejecuta los archivos ubicados en `supabase/mig
    - Futuro Director (Postulante): `elena.villacis@ug.edu.ec`
    - Docente Investigador: `gabriel.romero@ug.edu.ec`
    - Gestor de Conocimiento: `diana.paredes@ug.edu.ec`
-3. También puedes registrarte directamente desde la pantalla de acceso de la aplicación usando cualquier correo electrónico válido (o ejecutar `006_allow_any_email.sql` si ya habías corrido las migraciones iniciales).
+3. También puedes registrarte directamente desde la pantalla de acceso de la aplicación usando cualquier correo electrónico válido.

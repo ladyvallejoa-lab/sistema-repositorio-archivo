@@ -3,6 +3,26 @@
 -- Migración 003: Políticas de Seguridad a Nivel de Fila (Row Level Security - RLS)
 -- ============================================================================
 
+-- Permisos base de esquema, tablas, secuencias y funciones para roles de Supabase
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+
+-- Refuerzo a nivel de privilegios SQL (RN-21 y RN-22)
+REVOKE DELETE ON public.documents FROM authenticated;
+REVOKE UPDATE, DELETE ON public.audit_logs FROM authenticated;
+
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO authenticated;
+
 -- Habilitar RLS en TODAS las tablas del sistema
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;

@@ -41,7 +41,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       setProfileError(null);
-      const { data: profRow, error: profErr } = await supabase
+      let { data: profRow, error: profErr } = await supabase
         .from('profiles')
         .select('*')
         .eq('auth_user_id', user.id)
@@ -52,8 +52,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (!profRow) {
+        const { error: ensureErr } = await supabase.rpc('ensure_current_user_profile');
+        if (!ensureErr) {
+          const retry = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('auth_user_id', user.id)
+            .maybeSingle();
+          profRow = retry.data;
+          profErr = retry.error;
+          if (profErr) {
+            throw new Error(profErr.message);
+          }
+        }
+      }
+
+      if (!profRow) {
         setProfileError(
-          'Tu cuenta autenticada aún no está vinculada a un perfil en la tabla public.profiles. Verifica que ejecutaste las migraciones SQL (001 a 005) en Supabase.'
+          'Tu cuenta autenticada aún no está vinculada a un perfil en la tabla public.profiles. Verifica que ejecutaste las migraciones SQL (001 a 007) en Supabase.'
         );
         setProfile(null);
         return;
@@ -166,6 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: cleanEmail,
       password,
       options: {
+        emailRedirectTo: `${window.location.origin}${window.location.pathname}`,
         data: {
           full_name: fullName.trim(),
           career: 'Ingeniería en Telemática'
@@ -183,7 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const resetPassword = async (email: string) => {
     if (!supabase) throw new Error('Supabase no configurado.');
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: window.location.origin
+      redirectTo: `${window.location.origin}${window.location.pathname}`
     });
     if (error) throw new Error(error.message);
   };
